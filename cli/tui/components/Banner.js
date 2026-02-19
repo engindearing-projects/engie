@@ -149,7 +149,7 @@ export function Banner() {
   return e(Box, { flexDirection: "column", marginBottom: 1 },
     e(Box, null,
       e(Text, { color: PULSE_FRAMES[pulseIdx].color }, PULSE_FRAMES[pulseIdx].glyph + PULSE_FRAMES[pulseIdx].pad),
-      e(Text, { color: colors.cyan, bold: true }, "engie"),
+      e(Text, { color: colors.cyan, bold: true }, "cozy"),
       e(Text, { color: colors.gray }, ` v${VERSION}`)
     ),
     e(Text, { color: colors.grayDim }, `${greeting}. ${contextLine}`),

@@ -1,8 +1,8 @@
 // observe command — write an observation to the memory DB from CLI/cron.
 //
 // Usage:
-//   engie observe "task_update" "Finished API integration" --project myapp --tag api
-//   engie observe note "Quick thought about the scheduler"
+//   cozy observe "task_update" "Finished API integration" --project myapp --tag api
+//   cozy observe note "Quick thought about the scheduler"
 //
 // Designed to be called by cron jobs, scripts, or directly.
 
@@ -20,10 +20,10 @@ const VALID_TYPES = [
 ];
 
 const HELP = `
-  ${chalk.bold("engie observe")} — save an observation to memory
+  ${chalk.bold("cozy observe")} — save an observation to memory
 
   ${chalk.cyan("Usage:")}
-    engie observe [type] <summary> [options]
+    cozy observe [type] <summary> [options]
 
   ${chalk.cyan("Types:")}
     ${VALID_TYPES.join(", ")}
@@ -38,9 +38,9 @@ const HELP = `
     -h, --help          Show this help
 
   ${chalk.cyan("Examples:")}
-    engie observe "Merged PR #42 — Quest API integration"
-    engie observe task_update "PROJ-42 complete" --project myapp --tag api
-    engie observe blocker "Waiting on IAM creds from devops" --project myapp
+    cozy observe "Merged PR #42 — Quest API integration"
+    cozy observe task_update "PROJ-42 complete" --project myapp --tag api
+    cozy observe blocker "Waiting on IAM creds from devops" --project myapp
 `;
 
 export async function run({ args = [] } = {}) {

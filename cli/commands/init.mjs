@@ -1,4 +1,4 @@
-// Setup wizard command — `engie init`
+// Setup wizard command — `cozy init`
 // Renders the full interactive wizard TUI for first-time setup or re-run.
 
 import React from "react";

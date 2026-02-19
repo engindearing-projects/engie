@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Engie",
-    "slug": "engie-mobile",
+    "name": "CozyTerm",
+    "slug": "cozyterm-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "engie",
+    "scheme": "cozyterm",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {

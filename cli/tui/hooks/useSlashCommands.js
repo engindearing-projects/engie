@@ -15,6 +15,9 @@ const HELP_TEXT = [
   "  /status            Show service health",
   "  /memory [query]    Search memory (no query = show recent)",
   "  /observe <text>    Save an observation to memory",
+  "  /coach             Toggle coaching mode",
+  "  /explain [concept] Get a friendly explanation",
+  "  /suggest           Get next-step suggestions",
   "  /quit              Exit (/exit, /q also work)",
 ].join("\n");
 
@@ -44,7 +47,7 @@ function formatObservations(rows, label = "Recent memory") {
  *
  * Returns { handleCommand(text) -> bool } — returns true if the input was a slash command.
  */
-export function useSlashCommands({ gateway, app, setMessages, setStreamText, sendMessage, sessionKey, services }) {
+export function useSlashCommands({ gateway, app, setMessages, setStreamText, sendMessage, sessionKey, services, coachMode, setCoachMode }) {
   const handleCommand = useCallback(
     async (text) => {
       const trimmed = text.trim();
@@ -78,6 +81,41 @@ export function useSlashCommands({ gateway, app, setMessages, setStreamText, sen
         return true;
       }
 
+      // /coach — toggle coaching mode
+      if (lower === "/coach") {
+        const newMode = !coachMode;
+        setCoachMode(newMode);
+        setMessages((prev) => [
+          ...prev,
+          sysMsg(newMode
+            ? "Coaching mode ON — Engie will give warmer explanations with suggestions."
+            : "Coaching mode OFF — back to standard mode."
+          ),
+        ]);
+        return true;
+      }
+
+      // /explain [concept] — request a friendly explanation
+      if (lower === "/explain" || lower.startsWith("/explain ")) {
+        const concept = trimmed.slice("/explain".length).trim();
+        if (!concept) {
+          setMessages((prev) => [...prev, sysMsg("Usage: /explain <concept or command>")]);
+          return true;
+        }
+        const wrapped =
+          `[Coaching mode: explain this in a warm, friendly way. Use plain language first, then show the technical details. Use analogies where helpful. End with SUGGESTIONS: ["cmd1", "cmd2", ...]]\n\nExplain: ${concept}`;
+        sendMessage(wrapped);
+        return true;
+      }
+
+      // /suggest — request contextual next-step suggestions
+      if (lower === "/suggest") {
+        const wrapped =
+          `[Based on our conversation so far, suggest 3-5 useful next steps or commands I could try. Format your response with SUGGESTIONS: ["cmd1", "cmd2", ...] at the end.]`;
+        sendMessage(wrapped);
+        return true;
+      }
+
       // /status
       if (lower === "/status") {
         const lines = services.map((s) => {
@@ -100,7 +138,7 @@ export function useSlashCommands({ gateway, app, setMessages, setStreamText, sen
         const loadingId = `sys-${++sysMsgCounter}`;
         setMessages((prev) => [
           ...prev,
-          { id: loadingId, role: "system", text: query ? `Searching memory for: "${query}"…` : "Loading recent memory…" },
+          { id: loadingId, role: "system", text: query ? `Searching memory for: "${query}"...` : "Loading recent memory..." },
         ]);
 
         try {
@@ -179,7 +217,7 @@ export function useSlashCommands({ gateway, app, setMessages, setStreamText, sen
       ]);
       return true;
     },
-    [gateway, app, setMessages, setStreamText, sendMessage, sessionKey, services]
+    [gateway, app, setMessages, setStreamText, sendMessage, sessionKey, services, coachMode, setCoachMode]
   );
 
   return { handleCommand };

@@ -1,4 +1,4 @@
-// Service lifecycle management for Engie launchd services.
+// Service lifecycle management for CozyTerm launchd services.
 // All paths resolved dynamically — no hardcoded user paths.
 
 import { execSync } from "child_process";
@@ -20,19 +20,19 @@ export function getServiceDefs() {
 
   return [
     {
-      label: "com.engie.gateway",
+      label: "com.cozyterm.gateway",
       displayName: "Gateway",
       healthUrl: "http://localhost:18789/health",
-      plistPath: join(LAUNCH_AGENTS_DIR, "com.engie.gateway.plist"),
+      plistPath: join(LAUNCH_AGENTS_DIR, "com.cozyterm.gateway.plist"),
       logPath: join(logs, "gateway.log"),
       errorLogPath: join(logs, "gateway.err.log"),
       managed: true,
     },
     {
-      label: "com.engie.claude-proxy",
+      label: "com.cozyterm.claude-proxy",
       displayName: "Claude Proxy",
       healthUrl: "http://localhost:18791/health",
-      plistPath: join(LAUNCH_AGENTS_DIR, "com.engie.claude-proxy.plist"),
+      plistPath: join(LAUNCH_AGENTS_DIR, "com.cozyterm.claude-proxy.plist"),
       logPath: join(logs, "claude-proxy.log"),
       errorLogPath: join(logs, "claude-proxy.error.log"),
       managed: true,
@@ -138,7 +138,7 @@ function generateGatewayPlist() {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.engie.gateway</string>
+    <string>com.cozyterm.gateway</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
@@ -175,7 +175,7 @@ function generateClaudeProxyPlist() {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.engie.claude-proxy</string>
+    <string>com.cozyterm.claude-proxy</string>
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/node</string>
@@ -211,13 +211,13 @@ function generateClaudeProxyPlist() {
  */
 export function installService(def) {
   if (!def.managed) {
-    throw new Error(`${def.displayName} is not managed by Engie — install via homebrew`);
+    throw new Error(`${def.displayName} is not managed by CozyTerm — install via homebrew`);
   }
 
   let plistContent;
-  if (def.label === "com.engie.gateway") {
+  if (def.label === "com.cozyterm.gateway") {
     plistContent = generateGatewayPlist();
-  } else if (def.label === "com.engie.claude-proxy") {
+  } else if (def.label === "com.cozyterm.claude-proxy") {
     plistContent = generateClaudeProxyPlist();
   } else {
     throw new Error(`No plist generator for ${def.label}`);

@@ -1,5 +1,5 @@
 // Chat command — interactive TUI or one-shot query.
-// Extracted from the original bin/engie.mjs entry point.
+// Extracted from the original bin/cozy.mjs entry point.
 
 import { readFileSync } from "fs";
 import chalk from "chalk";
@@ -12,11 +12,11 @@ import { injectContext } from "../lib/memory-context.js";
  * Run chat mode.
  * @param {{ oneshot: string|null, sessionKey: string }} opts
  */
-export async function run({ oneshot = null, sessionKey = "agent:engie:cli" } = {}) {
+export async function run({ oneshot = null, sessionKey = "agent:engie:cli", coach = false } = {}) {
   const configPath = findConfig();
   if (!configPath) {
     console.error(chalk.red("Could not find openclaw.json config."));
-    console.error(chalk.gray("Run `engie init` to set up, or set ENGIE_CONFIG."));
+    console.error(chalk.gray("Run `cozy init` to set up, or set COZYTERM_CONFIG."));
     process.exit(1);
   }
 
@@ -41,7 +41,7 @@ export async function run({ oneshot = null, sessionKey = "agent:engie:cli" } = {
     await gw.connect();
   } catch (err) {
     console.error(chalk.red(`Failed to connect to gateway: ${err.message}`));
-    console.error(chalk.gray("Is the gateway running? Try `engie status` or `engie doctor`."));
+    console.error(chalk.gray("Is the gateway running? Try `cozy status` or `cozy doctor`."));
     process.exit(1);
   }
 
@@ -106,7 +106,7 @@ export async function run({ oneshot = null, sessionKey = "agent:engie:cli" } = {
   const { App } = await import("../tui/App.js");
   const e = React.createElement;
 
-  const { waitUntilExit } = render(e(App, { gateway: gw, sessionKey }));
+  const { waitUntilExit } = render(e(App, { gateway: gw, sessionKey, initialCoachMode: coach }));
 
   await waitUntilExit();
   gw.disconnect();

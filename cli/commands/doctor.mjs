@@ -1,4 +1,4 @@
-// engie doctor — full diagnostic checklist with optional self-healing.
+// cozy doctor — full diagnostic checklist with optional self-healing.
 
 import chalk from "chalk";
 import { existsSync, readFileSync, mkdirSync } from "fs";
@@ -31,7 +31,7 @@ export async function run({ args } = {}) {
   let fixed = 0;
 
   console.log();
-  console.log(chalk.bold("  Engie Doctor"));
+  console.log(chalk.bold("  CozyTerm Doctor"));
   console.log();
 
   // ── 1. Prerequisites ──────────────────────────────

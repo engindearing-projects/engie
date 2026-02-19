@@ -1,11 +1,11 @@
-// engie stop — stop all services and confirm.
+// cozy stop — stop all services and confirm.
 
 import chalk from "chalk";
 import { stopAllServices, checkServiceRunning, getServiceDefs } from "../lib/services.js";
 
 export async function run({ args } = {}) {
   console.log();
-  console.log(chalk.bold("  Stopping Engie services..."));
+  console.log(chalk.bold("  Stopping CozyTerm services..."));
   console.log();
 
   const results = stopAllServices();

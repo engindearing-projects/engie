@@ -9,16 +9,21 @@ const e = React.createElement;
 export function WelcomeScreen({ resuming }) {
   return e(Box, { flexDirection: "column", marginBottom: 1 },
     e(Box, null,
-      e(Text, { color: colors.cyan, bold: true }, "engie"),
+      e(Text, { color: colors.cyan, bold: true }, "cozy"),
       e(Text, { color: colors.gray }, ` v${VERSION} setup`)
     ),
     e(Text, null, ""),
     resuming
       ? e(Text, { color: colors.yellow }, "  Resuming setup...")
       : e(Box, { flexDirection: "column" },
-          e(Text, { color: colors.white, bold: true }, "  Hey! I'm Engie."),
+          e(Text, { color: colors.white, bold: true }, "  Hey! I'm Engie, your AI project manager inside CozyTerm."),
           e(Text, { color: colors.gray },
-            "  Let's get me set up. This takes about 2 minutes.")
+            "  Let's get me set up. This takes about 2 minutes."),
+          e(Text, null, ""),
+          e(Text, { color: colors.gray }, "  Coaching tips:"),
+          e(Text, { color: colors.gray }, "    /coach    — toggle friendly coaching mode"),
+          e(Text, { color: colors.gray }, "    /explain  — get a warm explanation of any concept"),
+          e(Text, { color: colors.gray }, "    /suggest  — get next-step suggestions"),
         )
   );
 }

@@ -1,6 +1,6 @@
 // Shared constants — used by CLI, TUI, and mobile app.
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 
 export const DEFAULT_GATEWAY_PORT = 18789;
 export const DEFAULT_PROXY_PORT = 18791;
@@ -11,10 +11,10 @@ export const SESSION_KEY = "agent:engie:cli";
 export const MOBILE_SESSION_KEY = "main";
 
 export const SERVICE_NAMES = {
-  gateway: "com.engie.gateway",
-  claudeProxy: "com.engie.claude-proxy",
-  activitySync: "com.engie.activity-sync",
-  telegramPush: "com.engie.telegram-push",
+  gateway: "com.cozyterm.gateway",
+  claudeProxy: "com.cozyterm.claude-proxy",
+  activitySync: "com.cozyterm.activity-sync",
+  telegramPush: "com.cozyterm.telegram-push",
   ollama: "homebrew.mxcl.ollama",
 };
 

@@ -1,11 +1,11 @@
-// engie start — start all services and show status.
+// cozy start — start all services and show status.
 
 import chalk from "chalk";
 import { startAllServices, getAllServicesStatus } from "../lib/services.js";
 
 export async function run({ args } = {}) {
   console.log();
-  console.log(chalk.bold("  Starting Engie services..."));
+  console.log(chalk.bold("  Starting CozyTerm services..."));
   console.log();
 
   const results = startAllServices();

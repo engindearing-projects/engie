@@ -1,5 +1,5 @@
-// User profile management for Engie.
-// Stores user info, preferences, and work patterns as JSON files in ~/.engie/profile/.
+// User profile management for CozyTerm.
+// Stores user info, preferences, and work patterns as JSON files in ~/.cozyterm/profile/.
 // All reads handle missing files gracefully; all writes ensure the directory exists.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
@@ -8,7 +8,7 @@ import { userInfo } from "os";
 import { profileDir } from "./paths.js";
 
 // Lazy reference to memory-db — resolved on first use to avoid import errors
-// if the DB hasn't been set up yet (e.g., first run before `engie init`).
+// if the DB hasn't been set up yet (e.g., first run before `cozy init`).
 let _memoryDb = null;
 function getMemoryDb() {
   if (_memoryDb) return _memoryDb;

@@ -1,4 +1,4 @@
-// Engie TUI theme — colors, branding
+// CozyTerm TUI theme — colors, branding
 
 export const colors = {
   cyan: "#06b6d4",
@@ -11,7 +11,7 @@ export const colors = {
   green: "#22c55e",
 };
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 
 /**
  * Time-of-day greeting.

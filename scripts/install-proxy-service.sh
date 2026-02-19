@@ -11,7 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$PROJECT_DIR/config/logs"
-LABEL="com.engie.claude-proxy"
+LABEL="com.cozyterm.claude-proxy"
 
 ACTION="${1:-install}"
 
@@ -48,8 +48,8 @@ install_macos() {
 
   # Replace placeholders
   if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' "s|ENGIE_SCRIPTS_DIR|$SCRIPT_DIR|g" "$PLIST_DEST"
-    sed -i '' "s|ENGIE_LOG_DIR|$LOG_DIR|g" "$PLIST_DEST"
+    sed -i '' "s|COZYTERM_SCRIPTS_DIR|$SCRIPT_DIR|g" "$PLIST_DEST"
+    sed -i '' "s|COZYTERM_LOG_DIR|$LOG_DIR|g" "$PLIST_DEST"
     sed -i '' "s|/usr/local/bin/node|$NODE_BIN|g" "$PLIST_DEST"
     sed -i '' "s|/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin|$FULL_PATH|g" "$PLIST_DEST"
   fi
@@ -63,7 +63,7 @@ install_macos() {
   echo "  Logs:   $LOG_DIR/claude-proxy.log"
   echo "  Errors: $LOG_DIR/claude-proxy.error.log"
   echo ""
-  echo "  Status: launchctl list | grep engie"
+  echo "  Status: launchctl list | grep cozyterm"
   echo "  Stop:   launchctl unload $PLIST_DEST"
   echo "  Start:  launchctl load $PLIST_DEST"
 }
@@ -83,7 +83,7 @@ uninstall_macos() {
 
 # ── Linux (systemd) ──────────────────────────────────────────────────────────
 install_linux() {
-  local SERVICE_FILE="$HOME/.config/systemd/user/engie-claude-proxy.service"
+  local SERVICE_FILE="$HOME/.config/systemd/user/cozyterm-claude-proxy.service"
   local NODE_BIN
   NODE_BIN="$(which node)"
 
@@ -104,7 +104,7 @@ install_linux() {
 
   cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Engie Claude Code Proxy
+Description=CozyTerm Claude Code Proxy
 After=network.target
 
 [Service]
@@ -125,21 +125,21 @@ WantedBy=default.target
 EOF
 
   systemctl --user daemon-reload
-  systemctl --user enable engie-claude-proxy
-  systemctl --user start engie-claude-proxy
+  systemctl --user enable cozyterm-claude-proxy
+  systemctl --user start cozyterm-claude-proxy
 
   echo "Done. systemd service installed and started."
   echo ""
-  echo "  Status:  systemctl --user status engie-claude-proxy"
-  echo "  Logs:    journalctl --user -u engie-claude-proxy -f"
-  echo "  Stop:    systemctl --user stop engie-claude-proxy"
-  echo "  Restart: systemctl --user restart engie-claude-proxy"
+  echo "  Status:  systemctl --user status cozyterm-claude-proxy"
+  echo "  Logs:    journalctl --user -u cozyterm-claude-proxy -f"
+  echo "  Stop:    systemctl --user stop cozyterm-claude-proxy"
+  echo "  Restart: systemctl --user restart cozyterm-claude-proxy"
 }
 
 uninstall_linux() {
-  systemctl --user stop engie-claude-proxy 2>/dev/null || true
-  systemctl --user disable engie-claude-proxy 2>/dev/null || true
-  rm -f "$HOME/.config/systemd/user/engie-claude-proxy.service"
+  systemctl --user stop cozyterm-claude-proxy 2>/dev/null || true
+  systemctl --user disable cozyterm-claude-proxy 2>/dev/null || true
+  rm -f "$HOME/.config/systemd/user/cozyterm-claude-proxy.service"
   systemctl --user daemon-reload
   echo "Done."
 }

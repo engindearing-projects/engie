@@ -1,7 +1,7 @@
-# User Profile
+# CozyTerm User Profile
 
-This file is a template. Personalize it during `engie init` or edit directly.
-Your actual profile is stored in `~/.engie/profile/user.json`.
+This file is a template. Personalize it during `cozy init` or edit directly.
+Your actual profile is stored in `~/.cozyterm/profile/user.json`.
 
 ## Preferences
 - Concise communication, no fluff
@@ -10,7 +10,7 @@ Your actual profile is stored in `~/.engie/profile/user.json`.
 - Write in first person: "Added support for X" not "We added support for X"
 
 ## Work Patterns
-- Configure active hours in `engie init`
+- Configure active hours in `cozy init`
 - Morning standup summaries delivered via your preferred channel
 - Telegram for after-hours urgent alerts
 

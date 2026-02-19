@@ -1,14 +1,15 @@
 {
-  "name": "engie",
-  "version": "0.3.0",
+  "name": "cozyterm-cli",
+  "version": "0.4.0",
   "type": "module",
-  "description": "Engie — your AI project manager in the terminal",
+  "description": "CozyTerm — your AI project manager in the terminal, powered by Engie",
   "bin": {
-    "engie": "./bin/engie.mjs"
+    "cozy": "./bin/cozy.mjs",
+    "engie": "./bin/cozy.mjs"
   },
   "scripts": {
-    "start": "bun bin/engie.mjs",
-    "dev": "bun --watch bin/engie.mjs"
+    "start": "bun bin/cozy.mjs",
+    "dev": "bun --watch bin/cozy.mjs"
   },
   "engines": {
     "bun": ">=1.0.0"

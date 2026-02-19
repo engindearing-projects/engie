@@ -1,4 +1,4 @@
-// Single source of truth for all Engie path resolution.
+// Single source of truth for all CozyTerm path resolution.
 // Every module that needs a path imports from here — no hardcoded paths anywhere else.
 
 import { resolve, join } from "path";
@@ -6,45 +6,48 @@ import { existsSync, mkdirSync, symlinkSync, readlinkSync } from "fs";
 
 const HOME = process.env.HOME || "/tmp";
 
-/** Root Engie directory — $ENGIE_HOME or ~/.engie/ */
-export function engieHome() {
-  return process.env.ENGIE_HOME || resolve(HOME, ".engie");
+/** Root CozyTerm directory — $COZYTERM_HOME or $ENGIE_HOME (fallback) or ~/.cozyterm/ */
+export function cozyHome() {
+  return process.env.COZYTERM_HOME || process.env.ENGIE_HOME || resolve(HOME, ".cozyterm");
 }
 
-/** OpenClaw config dir (inside engie home) */
+/** @deprecated Use cozyHome() — kept for backward compatibility */
+export const engieHome = cozyHome;
+
+/** OpenClaw config dir (inside cozy home) */
 export function configDir() {
-  return join(engieHome(), "config");
+  return join(cozyHome(), "config");
 }
 
 /** Workspace dir — skills, tools, persistent data */
 export function workspaceDir() {
-  return join(engieHome(), "workspace");
+  return join(cozyHome(), "workspace");
 }
 
 /** Memory dir — structured memory, SQLite DB */
 export function memoryDir() {
-  return join(engieHome(), "memory");
+  return join(cozyHome(), "memory");
 }
 
 /** Cron dir — scheduled jobs */
 export function cronDir() {
-  return join(engieHome(), "cron");
+  return join(cozyHome(), "cron");
 }
 
 /** Logs dir — service output, archived logs */
 export function logsDir() {
-  return join(engieHome(), "logs");
+  return join(cozyHome(), "logs");
 }
 
 /** Profile dir — user.json, preferences.json, patterns.json */
 export function profileDir() {
-  return join(engieHome(), "profile");
+  return join(cozyHome(), "profile");
 }
 
 /** All managed directories */
 export function allDirs() {
   return [
-    engieHome(),
+    cozyHome(),
     configDir(),
     workspaceDir(),
     memoryDir(),
@@ -76,29 +79,38 @@ export function mcpToolsPath() {
   return join(configDir(), "mcp-tools.json");
 }
 
-/** Memory SQLite database path */
+/** Memory SQLite database path — checks cozyterm.db first, falls back to engie.db */
 export function memoryDbPath() {
-  return join(memoryDir(), "engie.db");
+  const cozyDb = join(memoryDir(), "cozyterm.db");
+  if (existsSync(cozyDb)) return cozyDb;
+  const legacyDb = join(memoryDir(), "engie.db");
+  if (existsSync(legacyDb)) return legacyDb;
+  // Default to new name for fresh installs
+  return cozyDb;
 }
 
 /** Init state path (for setup wizard resume) */
 export function initStatePath() {
-  return join(engieHome(), ".init-state.json");
+  return join(cozyHome(), ".init-state.json");
 }
 
 /**
  * Resolve the OpenClaw config file — checks multiple locations.
- * Priority: $ENGIE_CONFIG > ~/.engie/config/ > ~/.openclaw/ > legacy ~/engie/config/
+ * Priority: $COZYTERM_CONFIG > $ENGIE_CONFIG > ~/.cozyterm/config/ > ~/.engie/config/ > ~/.openclaw/ > legacy ~/engie/config/
  */
 export function findConfig() {
+  const cozyPath = process.env.COZYTERM_CONFIG;
+  if (cozyPath && existsSync(cozyPath)) return cozyPath;
+
   const envPath = process.env.ENGIE_CONFIG;
   if (envPath && existsSync(envPath)) return envPath;
 
   const candidates = [
     openclawConfigPath(),
+    resolve(HOME, ".engie/config/openclaw.json"),
     resolve(HOME, ".openclaw/openclaw.json"),
     resolve(HOME, "engie/config/openclaw.json"),
-    "/etc/engie/openclaw.json",
+    "/etc/cozyterm/openclaw.json",
   ];
 
   for (const p of candidates) {
@@ -108,7 +120,7 @@ export function findConfig() {
 }
 
 /**
- * Ensure ~/.openclaw symlink points to ~/.engie/config for OpenClaw compatibility.
+ * Ensure ~/.openclaw symlink points to ~/.cozyterm/config for OpenClaw compatibility.
  * Only creates the symlink if it doesn't exist or points elsewhere.
  */
 export function ensureOpenclawSymlink() {
@@ -135,7 +147,7 @@ export function ensureOpenclawSymlink() {
 /** Return all paths as a plain object (useful for config generation / debugging) */
 export function configPaths() {
   return {
-    engieHome: engieHome(),
+    cozyHome: cozyHome(),
     config: configDir(),
     workspace: workspaceDir(),
     memory: memoryDir(),

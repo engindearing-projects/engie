@@ -1,4 +1,4 @@
-// engie status — display service health table with chalk formatting.
+// cozy status — display service health table with chalk formatting.
 
 import chalk from "chalk";
 import { getAllServicesStatus } from "../lib/services.js";
@@ -32,7 +32,7 @@ function fmtHealth(running, healthy) {
 
 export async function run({ args } = {}) {
   console.log();
-  console.log(chalk.bold("  Engie Services"));
+  console.log(chalk.bold("  CozyTerm Services"));
   console.log();
 
   const statuses = await getAllServicesStatus();

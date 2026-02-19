@@ -1,16 +1,16 @@
-# Engie
+# CozyTerm
 
-Persistent AI project manager running natively on macOS with [OpenClaw](https://github.com/open-claw/open-claw) + Bun. Tracks projects across Jira and GitHub, sends daily briefs via Telegram, learns from every conversation, and handles coding tasks through a smart router that picks the right brain for the job.
+Your AI project manager in the terminal, powered by **Engie**. Runs natively on macOS with [OpenClaw](https://github.com/open-claw/open-claw) + Bun. Tracks projects across Jira and GitHub, sends daily briefs via Telegram, learns from every conversation, and handles coding tasks through a smart router that picks the right brain for the job.
 
 **Works with your Claude subscription** — heavy coding tasks route through the Claude Code CLI using your existing Pro/Max plan. No separate API credits needed for the expensive stuff. Simple tasks run locally on Ollama for free.
 
 <p align="center">
-  <img src="docs/tui.png" alt="Engie TUI" width="700">
+  <img src="docs/tui.png" alt="CozyTerm TUI" width="700">
 </p>
 
 <p align="center">
-  <img src="docs/web-chat.png" alt="Engie Web Chat" width="350">
-  <img src="docs/web-memory.png" alt="Engie Memory Browser" width="350">
+  <img src="docs/web-chat.png" alt="CozyTerm Web Chat" width="350">
+  <img src="docs/web-memory.png" alt="CozyTerm Memory Browser" width="350">
 </p>
 
 ---
@@ -28,10 +28,12 @@ cd cli && bun install && bun link
 cd ../mcp-bridge && npm install
 
 # 4. Run the setup wizard
-engie init
+cozy init
 ```
 
 The setup wizard handles everything: installing OpenClaw, configuring the gateway, generating configs, setting up launchd services, and verifying connectivity.
+
+**Migrating from engie?** Run `./scripts/migrate-to-cozyterm.sh` to move your config from `~/.engie` to `~/.cozyterm`.
 
 ---
 
@@ -40,22 +42,32 @@ The setup wizard handles everything: installing OpenClaw, configuring the gatewa
 ### Interactive TUI
 
 ```bash
-engie
+cozy
 ```
 
 Opens the Ink-based terminal UI with:
 - Breathing iris pulse indicator (alive = gateway connected)
 - Context-aware banner showing today's observations and active tickets
 - Rotating tips for commands and recent activity
-- Markdown-rendered assistant responses
+- Markdown-rendered assistant responses (from Engie)
 - Service health status bar
+
+### Coaching Mode
+
+```bash
+cozy --coach
+```
+
+Starts with coaching mode enabled. Engie gives warmer, more patient explanations with analogies and plain language. Suggestions appear as clickable chips after each response.
+
+Toggle coaching in the TUI with `/coach`. Get friendly explanations with `/explain git rebase`. Request next-step suggestions with `/suggest`.
 
 ### One-Shot Queries
 
 ```bash
-engie "what's the status of PROJ-42?"
-engie "summarize yesterday's blockers"
-engie "what did I work on this week?"
+cozy "what's the status of PROJ-42?"
+cozy "summarize yesterday's blockers"
+cozy "what did I work on this week?"
 ```
 
 Runs the query, prints the response, and exits. Observations are captured automatically.
@@ -63,18 +75,18 @@ Runs the query, prints the response, and exits. Observations are captured automa
 ### Service Management
 
 ```bash
-engie status          # service health table
-engie doctor          # run diagnostics
-engie doctor --fix    # auto-repair common issues
-engie start           # start all launchd services
-engie stop            # stop all services
+cozy status          # service health table
+cozy doctor          # run diagnostics
+cozy doctor --fix    # auto-repair common issues
+cozy start           # start all launchd services
+cozy stop            # stop all services
 ```
 
 ### Memory & Observations
 
 ```bash
 # Save an observation from the command line
-engie observe task_update "Finished API integration" --project myapp --tag PROJ-42
+cozy observe task_update "Finished API integration" --project myapp --tag PROJ-42
 
 # Search memory in the TUI
 /memory PROJ-42
@@ -94,6 +106,9 @@ engie observe task_update "Finished API integration" --project myapp --tag PROJ-
 | `/status` | Inline service health check |
 | `/session` | Show current session key |
 | `/clear` | Clear message history |
+| `/coach` | Toggle coaching mode |
+| `/explain [concept]` | Get a friendly explanation |
+| `/suggest` | Get contextual next-step suggestions |
 | `/quit` | Exit (also `/exit`, `/q`) |
 
 ---
@@ -101,35 +116,35 @@ engie observe task_update "Finished API integration" --project myapp --tag PROJ-
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        macOS (always-on)                    │
-│                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │ OpenClaw │  │  Claude  │  │  Ollama  │  │ Activity │   │
-│  │ Gateway  │  │  Proxy   │  │ (Metal)  │  │  Sync    │   │
-│  │ :18789   │  │ :18791   │  │ :11434   │  │ :18790   │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
-│       │              │             │              │         │
-│       │   Smart Router (complexity scoring)       │         │
-│       │   ┌────────────────────────────┐          │         │
-│       │   │  score >= 0.6 → Claude     │          │         │
-│       │   │  score <  0.6 → Ollama     │          │         │
-│       │   └────────────────────────────┘          │         │
-│       │                                           │         │
-│  ┌────┴───────────────────────────────────────────┘         │
-│  │                                                          │
-│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐  │
-│  │  │  CLI    │  │ Telegram │  │  Mobile  │  │   Web   │  │
-│  │  │  TUI    │  │   Bot    │  │   App    │  │   App   │  │
-│  │  └─────────┘  └──────────┘  └──────────┘  └─────────┘  │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  Memory System (SQLite + FTS5)                       │   │
-│  │  Auto-captures decisions, blockers, tickets, prefs   │   │
-│  │  Cross-platform activity sync + read cursors         │   │
-│  │  ~/.engie/memory/engie.db                            │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                        macOS (always-on)                     |
+|                                                              |
+|  +----------+  +----------+  +----------+  +----------+     |
+|  | OpenClaw |  |  Claude  |  |  Ollama  |  | Activity |     |
+|  | Gateway  |  |  Proxy   |  | (Metal)  |  |  Sync    |     |
+|  | :18789   |  | :18791   |  | :11434   |  | :18790   |     |
+|  +----+-----+  +----+-----+  +----+-----+  +----+-----+     |
+|       |              |             |              |           |
+|       |   Smart Router (complexity scoring)       |           |
+|       |   +----------------------------+          |           |
+|       |   |  score >= 0.6 -> Claude    |          |           |
+|       |   |  score <  0.6 -> Ollama    |          |           |
+|       |   +----------------------------+          |           |
+|       |                                           |           |
+|  +----+-------------------------------------------+           |
+|  |                                                            |
+|  |  +---------+  +----------+  +----------+  +---------+    |
+|  |  |  CLI    |  | Telegram |  |  Mobile  |  |   Web   |    |
+|  |  |  TUI    |  |   Bot    |  |   App    |  |   App   |    |
+|  |  +---------+  +----------+  +----------+  +---------+    |
+|                                                              |
+|  +--------------------------------------------------------+  |
+|  |  Memory System (SQLite + FTS5)                         |  |
+|  |  Auto-captures decisions, blockers, tickets, prefs     |  |
+|  |  Cross-platform activity sync + read cursors           |  |
+|  |  ~/.cozyterm/memory/cozyterm.db                        |  |
+|  +--------------------------------------------------------+  |
++--------------------------------------------------------------+
 ```
 
 ### Services
@@ -138,14 +153,14 @@ All services are managed by launchd and auto-start on boot:
 
 | Service | Port | launchd Label | Purpose |
 |---------|------|---------------|---------|
-| OpenClaw Gateway | 18789 | `com.engie.gateway` | Agent framework, WebSocket API |
-| Claude Code Proxy | 18791 | `com.engie.claude-proxy` | Wraps `claude` CLI for heavy tasks (uses subscription, not API) |
-| Activity Sync | 18790 | `com.engie.activity-sync` | Cross-platform activity ledger + read cursors |
+| OpenClaw Gateway | 18789 | `com.cozyterm.gateway` | Agent framework, WebSocket API |
+| Claude Code Proxy | 18791 | `com.cozyterm.claude-proxy` | Wraps `claude` CLI for heavy tasks (uses subscription, not API) |
+| Activity Sync | 18790 | `com.cozyterm.activity-sync` | Cross-platform activity ledger + read cursors |
 | Ollama | 11434 | `homebrew.mxcl.ollama` | Local LLM (llama3.2 3B, llama3.1 8B), Apple Silicon Metal GPU |
 
 ### Smart Router
 
-The router scores each message for complexity (0.0–1.0) and picks the backend:
+The router scores each message for complexity (0.0-1.0) and picks the backend:
 
 - **Claude Code** (score >= 0.6): refactoring, multi-file edits, code generation, debugging, architecture — uses your **Claude subscription**, not API credits
 - **Ollama** (score < 0.6): status checks, summaries, simple questions, standups — runs **locally for free** on Apple Silicon Metal GPU
@@ -164,28 +179,28 @@ Engie learns from every interaction via a SQLite + FTS5 memory database.
 
 ```
 User message + Assistant response
-        │
-        ▼
-┌──────────────────────┐
-│  extract-observations │ ← pattern matching
-│                      │
-│  • Jira tickets      │   PROJ-42, OPS-18, FEAT-7
-│  • Decisions         │   "let's go with", "decided to"
-│  • Blockers          │   "blocked by", "waiting on"
-│  • Preferences       │   "always use", "prefer"
-│  • Task completions  │   "merged", "deployed", "done with"
-│  • Chat exchanges    │   every non-trivial message
-└──────────┬───────────┘
-           ▼
-     ~/.engie/memory/engie.db
-           │
-           ▼
-  ┌────────────────┐
-  │  TUI Banner    │  "3 observations today · active: PROJ-42"
-  │  /memory       │  full-text search across all observations
-  │  Cron context  │  morning brief pulls recent memory
-  │  Chat context  │  auto-injected into messages
-  └────────────────┘
+        |
+        v
++----------------------+
+|  extract-observations | <- pattern matching
+|                      |
+|  * Jira tickets      |   PROJ-42, OPS-18, FEAT-7
+|  * Decisions         |   "let's go with", "decided to"
+|  * Blockers          |   "blocked by", "waiting on"
+|  * Preferences       |   "always use", "prefer"
+|  * Task completions  |   "merged", "deployed", "done with"
+|  * Chat exchanges    |   every non-trivial message
++----------+-----------+
+           v
+     ~/.cozyterm/memory/cozyterm.db
+           |
+           v
+  +----------------+
+  |  TUI Banner    |  "3 observations today - active: PROJ-42"
+  |  /memory       |  full-text search across all observations
+  |  Cron context  |  morning brief pulls recent memory
+  |  Chat context  |  auto-injected into messages
+  +----------------+
 ```
 
 ### Observation Types
@@ -207,7 +222,7 @@ User message + Assistant response
 /memory                           # show 10 most recent
 
 # From the CLI
-engie observe insight "The replication cron runs at 2 AM UTC" --project infra
+cozy observe insight "The replication cron runs at 2 AM UTC" --project infra
 
 # Programmatic (Bun)
 bun -e "
@@ -225,24 +240,7 @@ Two automated jobs run on weekdays via the OpenClaw scheduler:
 
 ### Morning Brief — 8:00 AM PT
 
-Checks configured Jira boards, GitHub activity, and memory for continuity. Delivers a formatted brief to Telegram:
-
-```
-☀️ Morning Brief — Tuesday Feb 18
-
-🔴 Top Priority Today
-1. PROJ-42 API integration — due Feb 20
-2. OPS-18 config fix — waiting on PR merge
-3. PROJ-38 data normalization — 3 PRs drafted
-
-⚠️ Blockers
-- OPS-21 IAM permission (unassigned)
-
-📅 Due This Week
-- PROJ-42 (Feb 20)
-```
-
-Each finding is stored as a structured observation via `engie_observe`.
+Checks configured Jira boards, GitHub activity, and memory for continuity. Delivers a formatted brief to Telegram.
 
 ### Afternoon Follow-up — 2:00 PM PT
 
@@ -280,9 +278,9 @@ Engie connects to external services via MCP servers configured in the gateway:
 ## Project Structure
 
 ```
-engie/
+cozyterm/
 ├── cli/                            # CLI + TUI (Bun runtime)
-│   ├── bin/engie.mjs               # Entry point, subcommand router
+│   ├── bin/cozy.mjs                # Entry point, subcommand router
 │   ├── commands/                   # Subcommands
 │   │   ├── chat.mjs                #   Interactive + one-shot chat
 │   │   ├── init.mjs                #   Setup wizard
@@ -313,12 +311,13 @@ engie/
 │       │   ├── MessageHistory.js   #     Scrollable message list
 │       │   ├── AssistantMessage.js  #     Markdown-rendered response
 │       │   ├── StreamingMessage.js  #     Live streaming text
+│       │   ├── SuggestionChips.js  #     Coaching suggestion chips
 │       │   ├── UserMessage.js      #     User message bubble
 │       │   ├── SystemMessage.js    #     System/slash command output
 │       │   ├── ErrorBanner.js      #     Error display
 │       │   └── WelcomeScreen.js    #     First-run welcome
 │       └── hooks/                  #   React hooks
-│           ├── useGateway.js       #     WebSocket ↔ React state bridge
+│           ├── useGateway.js       #     WebSocket <-> React state bridge
 │           ├── useSlashCommands.js  #     /command handler
 │           ├── useServiceHealth.js  #     Health polling
 │           ├── useInputHistory.js   #     Arrow-key input history
@@ -329,24 +328,25 @@ engie/
 │       └── observe.mjs             #   Bun subprocess for DB writes
 ├── scripts/                        # Service management
 │   ├── start-gateway.sh            #   Gateway launcher (sources .env)
-│   ├── claude-code-proxy.mjs       #   HTTP proxy → claude CLI
+│   ├── claude-code-proxy.mjs       #   HTTP proxy -> claude CLI
 │   ├── activity-server.mjs         #   Cross-platform activity sync server
 │   ├── router.mjs                  #   Complexity-based backend router
-│   ├── com.engie.gateway.plist     #   launchd: OpenClaw gateway
-│   ├── com.engie.claude-proxy.plist #  launchd: Claude Code proxy
-│   ├── com.engie.activity-sync.plist # launchd: Activity sync server
-│   ├── com.engie.telegram-push.plist # launchd: Telegram push notifications
+│   ├── com.cozyterm.gateway.plist  #   launchd: OpenClaw gateway
+│   ├── com.cozyterm.claude-proxy.plist # launchd: Claude Code proxy
+│   ├── com.cozyterm.activity-sync.plist # launchd: Activity sync server
+│   ├── com.cozyterm.telegram-push.plist # launchd: Telegram push notifications
 │   ├── install-proxy-service.sh    #   Service installer
+│   ├── migrate-to-cozyterm.sh      #   Migration from ~/.engie
 │   └── start-proxy.sh              #   Proxy launcher
 ├── shared/                         # Shared across CLI + mobile
 │   ├── constants.js                #   Ports, versions, service names
 │   └── types.js                    #   JSDoc type definitions
 ├── cron/                           # Scheduled jobs
 │   ├── jobs.json                   #   Morning brief + afternoon follow-up
-│   └── telegram-push.mjs          #   Cross-platform activity → Telegram
+│   └── telegram-push.mjs          #   Cross-platform activity -> Telegram
 ├── config/                         # OpenClaw config (symlinked from ~/.openclaw)
-├── engie-web/                      # Web dashboard (Vite + React + TypeScript)
-├── engie-mobile/                   # React Native app (Expo)
+├── cozyterm-web/                   # Web dashboard (Vite + React + TypeScript)
+├── cozyterm-mobile/                # React Native app (Expo)
 ├── workspace/                      # Skills, tools, persistent data
 ├── memory/                         # SQLite DB + markdown notes
 └── logs/                           # Service output, archived logs
@@ -356,44 +356,26 @@ engie/
 
 ## Configuration
 
-All paths resolve dynamically via `cli/lib/paths.js`. The canonical home is `~/.engie/` with a compatibility symlink:
+All paths resolve dynamically via `cli/lib/paths.js`. The canonical home is `~/.cozyterm/` with compatibility symlinks:
 
 ```
-~/.openclaw → ~/.engie/config/
+~/.openclaw -> ~/.cozyterm/config/
+~/.engie    -> ~/.cozyterm/          (if migrated)
 ```
 
-Override with the `ENGIE_HOME` environment variable.
+Override with the `COZYTERM_HOME` environment variable (falls back to `ENGIE_HOME`).
 
 ### Key Config Files
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `openclaw.json` | `~/.engie/config/` | Gateway config (agents, models, ports) |
-| `.env` | `~/.engie/config/` | API keys, Jira creds (never committed) |
-| `user.json` | `~/.engie/profile/` | User profile (name, role, org) |
-| `preferences.json` | `~/.engie/profile/` | Learned preferences |
-| `patterns.json` | `~/.engie/profile/` | Work patterns (active hours, session lengths) |
-| `engie.db` | `~/.engie/memory/` | SQLite memory database |
-| `jobs.json` | `~/.engie/cron/` | Scheduled job definitions |
-
----
-
-## Banner & Pulse
-
-The TUI banner is a living indicator of Engie's state:
-
-```
-◉ engie v0.3.0                              ← peak (bright cyan)
-● engie v0.3.0                              ← expanding
-• engie v0.3.0                              ← contracting
-· engie v0.3.0                              ← seed (dim)
-```
-
-The iris pulse cycles through 4 shapes (`· • ● ◉`) with a 24-step sine-wave color gradient over ~3 seconds. Color breathes between bright cyan (`#06b6d4`) and deep teal (`#0c3d4a`). The animation is precomputed at startup — zero runtime math, just an index increment every 130ms.
-
-Below the version line:
-- **Context line**: observation count + active Jira tickets from recent memory
-- **Tips line**: rotates every 30 seconds between dynamic context and static command hints
+| `openclaw.json` | `~/.cozyterm/config/` | Gateway config (agents, models, ports) |
+| `.env` | `~/.cozyterm/config/` | API keys, Jira creds (never committed) |
+| `user.json` | `~/.cozyterm/profile/` | User profile (name, role, org) |
+| `preferences.json` | `~/.cozyterm/profile/` | Learned preferences |
+| `patterns.json` | `~/.cozyterm/profile/` | Work patterns (active hours, session lengths) |
+| `cozyterm.db` | `~/.cozyterm/memory/` | SQLite memory database |
+| `jobs.json` | `~/.cozyterm/cron/` | Scheduled job definitions |
 
 ---
 

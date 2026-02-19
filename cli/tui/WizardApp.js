@@ -744,7 +744,7 @@ export function WizardApp() {
       ? e(Box, { flexDirection: "column", marginTop: 1, marginLeft: 2 },
           e(Text, null, ""),
           e(Text, { color: colors.green, bold: true }, "Setup complete!"),
-          e(Text, { color: colors.gray }, "Run `engie` to start chatting.")
+          e(Text, { color: colors.gray }, "Run `cozy` to start chatting.")
         )
       : null
   );

@@ -1,4 +1,4 @@
-// `engie web` — opens the web UI in the default browser, pre-authenticated.
+// `cozy web` — opens the web UI in the default browser, pre-authenticated.
 // Reads the gateway token from config/.env and passes it via URL params.
 
 import { resolve, dirname } from "path";
@@ -34,7 +34,7 @@ export async function run({ args = [] } = {}) {
 
   const url = `http://${DEFAULT_HOST}:${webPort}/?host=${DEFAULT_HOST}&port=${DEFAULT_GW_PORT}&token=${token}`;
 
-  console.log(chalk.cyan("Opening Engie web UI..."));
+  console.log(chalk.cyan("Opening CozyTerm web UI..."));
   console.log(chalk.gray(`Gateway: ${DEFAULT_HOST}:${DEFAULT_GW_PORT}`));
 
   // Use Bun's native shell to open browser

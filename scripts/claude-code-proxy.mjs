@@ -2,7 +2,7 @@
 
 // Claude Code Proxy Server
 // Wraps the `claude` CLI in headless mode (-p) behind an HTTP API
-// so Engie (OpenClaw) can invoke it for heavy-brain tasks.
+// so CozyTerm (OpenClaw) can invoke it for heavy-brain tasks.
 //
 // Runs on the HOST (not in Docker) because `claude` authenticates
 // via the local subscription/keychain.
@@ -25,7 +25,7 @@ const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
 const MAX_TIMEOUT_MS = 600_000; // 10 min
 const DEFAULT_MODEL = process.env.CLAUDE_PROXY_MODEL || "sonnet";
 
-// ── Engie-specific constants ─────────────────────────────────────────────────
+// ── CozyTerm-specific constants ──────────────────────────────────────────────
 
 /** Tools that would create circular calls back through the gateway/proxy */
 const ENGIE_DISALLOWED_TOOLS = [
@@ -40,7 +40,7 @@ const ENGIE_MCP_CONFIG = resolve(PROJECT_DIR, "config", "mcp-tools.json");
 /** System preamble prepended to whatever OpenClaw sends */
 const ENGIE_SYSTEM_PREAMBLE = [
   "You are Engie, an AI project manager and coding assistant.",
-  "You have read/write access to local memory files in ~/engie/memory/.",
+  "You have read/write access to local memory files in ~/.cozyterm/memory/.",
   "You have full access to the filesystem, Bash, and all standard Claude Code tools.",
   "You have MCP tools for Jira (Atlassian), Slack, and Figma.",
   "",

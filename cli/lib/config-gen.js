@@ -1,4 +1,4 @@
-// Config file generation for Engie setup wizard.
+// Config file generation for CozyTerm setup wizard.
 // Generates openclaw.json, .env, and mcp-tools.json from dynamic paths and user input.
 
 import { randomBytes } from "crypto";

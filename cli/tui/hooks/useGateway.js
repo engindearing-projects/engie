@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { extractAndStore } from "../../lib/extract-observations.js";
 import { injectContext } from "../../lib/memory-context.js";
+import { extractSuggestions, stripSuggestions } from "../lib/extract-suggestions.js";
 
 const ACTIVITY_URL = `http://localhost:${process.env.ACTIVITY_PORT || 18790}`;
 
@@ -27,12 +28,13 @@ let msgCounter = 0;
  * - error: last error message (or null)
  * - sendMessage(text): send a user message
  */
-export function useGateway(gw, sessionKey) {
+export function useGateway(gw, sessionKey, coachMode = false) {
   const [messages, setMessages] = useState([]);
   const [streamText, setStreamText] = useState("");
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(gw?.connected ?? false);
   const [error, setError] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
 
   // Track accumulated text for delta diffing (same approach as repl.mjs)
   const accumulatedRef = useRef("");
@@ -100,9 +102,14 @@ export function useGateway(gw, sessionKey) {
         }
 
         if (finalText) {
+          // Extract and strip suggestions before displaying
+          const chips = extractSuggestions(finalText);
+          const cleanText = chips.length > 0 ? stripSuggestions(finalText) : finalText;
+          setSuggestions(chips);
+
           setMessages((prev) => [
             ...prev,
-            { id: `a-${++msgCounter}`, role: "assistant", text: finalText },
+            { id: `a-${++msgCounter}`, role: "assistant", text: cleanText },
           ]);
         }
 
@@ -131,7 +138,7 @@ export function useGateway(gw, sessionKey) {
 
     function onDisconnected() {
       setConnected(false);
-      setError("Lost connection to Engie gateway");
+      setError("Lost connection to CozyTerm gateway");
       setBusy(false);
     }
 
@@ -160,6 +167,7 @@ export function useGateway(gw, sessionKey) {
       setBusy(true);
       accumulatedRef.current = "";
       setStreamText("");
+      setSuggestions([]);
       lastUserMsgRef.current = text;
 
       // Add user message to history (show raw text, not context-injected)
@@ -170,7 +178,15 @@ export function useGateway(gw, sessionKey) {
 
       try {
         // Inject recent memory context as prefix — fails silently if DB unavailable
-        const messageWithContext = await injectContext(text);
+        let messageWithContext = await injectContext(text);
+
+        // Prepend coaching context when coaching mode is active
+        if (coachMode) {
+          messageWithContext =
+            "[Coaching mode ON. Be warm, patient, encouraging. Explain in plain language first, use analogies. End with SUGGESTIONS: [\"cmd1\", \"cmd2\", ...]]\n\n" +
+            messageWithContext;
+        }
+
         await gw.chat(sessionKey, messageWithContext);
         // Response arrives via agent/chat events
       } catch (err) {
@@ -181,5 +197,5 @@ export function useGateway(gw, sessionKey) {
     [gw, sessionKey, busy]
   );
 
-  return { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage };
+  return { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions };
 }
