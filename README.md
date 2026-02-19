@@ -1,17 +1,17 @@
 # Engie
 
-```
-  ·  engie v0.3.0          ← iris breathes: · • ● ◉ ● • ·
-  Good morning. 5 observations today · active: PROJ-42, OPS-18
-    tip: /memory to search past context
-
-  ● gateway  ● claude  ● ollama  │  agent:engie:cli
-  engie > _
-```
-
-Persistent AI project manager running natively on macOS with Bun. Tracks projects across Jira and GitHub, sends daily briefs via Telegram, learns from every conversation, and handles coding tasks through a smart router that picks the right brain for the job.
+Persistent AI project manager running natively on macOS with [OpenClaw](https://github.com/open-claw/open-claw) + Bun. Tracks projects across Jira and GitHub, sends daily briefs via Telegram, learns from every conversation, and handles coding tasks through a smart router that picks the right brain for the job.
 
 **Works with your Claude subscription** — heavy coding tasks route through the Claude Code CLI using your existing Pro/Max plan. No separate API credits needed for the expensive stuff. Simple tasks run locally on Ollama for free.
+
+<p align="center">
+  <img src="docs/tui.png" alt="Engie TUI" width="700">
+</p>
+
+<p align="center">
+  <img src="docs/web-chat.png" alt="Engie Web Chat" width="350">
+  <img src="docs/web-memory.png" alt="Engie Memory Browser" width="350">
+</p>
 
 ---
 

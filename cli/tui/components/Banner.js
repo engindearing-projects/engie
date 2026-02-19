@@ -65,7 +65,7 @@ function buildContextLine(ctx) {
     for (const obs of ctx.recentObs) {
       if (obs.tags) {
         for (const tag of obs.tags) {
-          if (/^(PORT|AD|MMA|DLV)-\d+$/.test(tag)) {
+          if (/^[A-Z]+-\d+$/.test(tag)) {
             ticketTags.add(tag);
           }
         }
