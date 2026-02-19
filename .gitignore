@@ -1,0 +1,78 @@
+# Secrets
+.env
+config/.env
+config/credentials/
+
+# Runtime
+node_modules/
+bun.lockb
+*.log
+logs/
+
+# OpenClaw runtime state
+config/exec-approvals.json
+config/update-check.json
+config/sessions.json
+config/logs/
+config/sandbox/
+config/sandboxes/
+config/devices/
+config/agents/
+config/canvas/
+config/telegram/
+config/openclaw.json.bak*
+config/openclaw.json
+config/identity/
+config/cron
+config/memory
+config/workspace
+config/workspace.bak/
+config/mcp-tools.json
+
+# Cron runtime
+cron/runs/
+cron/jobs.json.bak
+
+# Workspace runtime (all content is OpenClaw state, not source)
+workspace/
+
+# Memory & profile (user data, not source)
+memory/*.md
+profile/
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Log archives
+*.gz
+
+# Docker (archived)
+ollama-data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code local config
+.mcp.json
+.claude/
+
+# Personal overrides (create *.local.md to customize without dirtying git)
+config/*.local.md
+*.local.json
+.env.local
+
+# Mobile
+engie-mobile/node_modules/
+engie-mobile/.expo/
+engie-mobile/ios/
+engie-mobile/android/
+
+# MCP bridge runtime
+mcp-bridge/node_modules/
