@@ -11,6 +11,8 @@
 
 Persistent AI project manager running natively on macOS with Bun. Tracks projects across Jira and GitHub, sends daily briefs via Telegram, learns from every conversation, and handles coding tasks through a smart router that picks the right brain for the job.
 
+**Works with your Claude subscription** — heavy coding tasks route through the Claude Code CLI using your existing Pro/Max plan. No separate API credits needed for the expensive stuff. Simple tasks run locally on Ollama for free.
+
 ---
 
 ## Quick Start
@@ -137,7 +139,7 @@ All services are managed by launchd and auto-start on boot:
 | Service | Port | launchd Label | Purpose |
 |---------|------|---------------|---------|
 | OpenClaw Gateway | 18789 | `com.engie.gateway` | Agent framework, WebSocket API |
-| Claude Code Proxy | 18791 | `com.engie.claude-proxy` | Wraps `claude` CLI for heavy tasks |
+| Claude Code Proxy | 18791 | `com.engie.claude-proxy` | Wraps `claude` CLI for heavy tasks (uses subscription, not API) |
 | Activity Sync | 18790 | `com.engie.activity-sync` | Cross-platform activity ledger + read cursors |
 | Ollama | 11434 | `homebrew.mxcl.ollama` | Local LLM (llama3.2 3B, llama3.1 8B), Apple Silicon Metal GPU |
 
@@ -145,10 +147,12 @@ All services are managed by launchd and auto-start on boot:
 
 The router scores each message for complexity (0.0–1.0) and picks the backend:
 
-- **Claude Code** (score >= 0.6): refactoring, multi-file edits, code generation, debugging, architecture
-- **Ollama** (score < 0.6): status checks, summaries, simple questions, standups
+- **Claude Code** (score >= 0.6): refactoring, multi-file edits, code generation, debugging, architecture — uses your **Claude subscription**, not API credits
+- **Ollama** (score < 0.6): status checks, summaries, simple questions, standups — runs **locally for free** on Apple Silicon Metal GPU
 
 Scoring factors: keyword patterns, message length, presence of code blocks, explicit hints.
+
+> **Cost breakdown**: If you have a Claude Pro ($20/mo) or Max ($100-200/mo) subscription, all heavy coding tasks are included at no extra cost. Ollama handles the lightweight stuff with zero API spend. The only API key needed is for the OpenClaw agent framework (ANTHROPIC_API_KEY), which handles orchestration and tool use at minimal token cost.
 
 ---
 
@@ -413,7 +417,7 @@ Below the version line:
 | MCP Bridge | Node + @modelcontextprotocol/sdk | Stdio transport |
 | Agent Framework | OpenClaw | Gateway, agents, cron, sessions |
 | Local LLM | Ollama | llama3.2 (3B), llama3.1 (8B), Metal GPU |
-| Heavy Brain | Claude Code CLI | Proxied via HTTP for agent access |
+| Heavy Brain | Claude Code CLI | Uses your Claude subscription — no API credits |
 | Memory | SQLite + FTS5 | Full-text search, auto-observation capture |
 | Web Dashboard | Vite + React + TypeScript | Chat, memory, settings UI |
 | Mobile | React Native / Expo | On-the-go access |
