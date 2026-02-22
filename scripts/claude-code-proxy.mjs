@@ -16,7 +16,8 @@ import { spawn, execSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { Router } from "./router.mjs";
+import { Router, HEAVY_PATTERNS } from "./router.mjs";
+import { runToolLoop } from "./tool-loop.mjs";
 
 // ── Forge Collectors (lazy-loaded) ───────────────────────────────────────────
 let _collector = null;
@@ -45,6 +46,26 @@ async function getToolCollector() {
   }
 }
 
+// ── Concurrency Limiter ─────────────────────────────────────────────────────
+
+class Semaphore {
+  constructor(max) {
+    this.max = max;
+    this.current = 0;
+    this.queue = [];
+  }
+  async acquire() {
+    if (this.current < this.max) { this.current++; return; }
+    await new Promise(resolve => this.queue.push(resolve));
+  }
+  release() {
+    this.current--;
+    if (this.queue.length > 0) { this.current++; this.queue.shift()(); }
+  }
+}
+
+const claudeLimiter = new Semaphore(parseInt(process.env.CLAUDE_MAX_CONCURRENT || "2", 10));
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
 
@@ -52,6 +73,7 @@ const PORT = parseInt(process.env.CLAUDE_PROXY_PORT || "18791", 10);
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
 const MAX_TIMEOUT_MS = 600_000; // 10 min
 const DEFAULT_MODEL = process.env.CLAUDE_PROXY_MODEL || "sonnet";
+const TRAINING_MODE = process.env.ENGIE_TRAINING_MODE === "true";
 
 // ── CozyTerm-specific constants ──────────────────────────────────────────────
 
@@ -125,6 +147,219 @@ setInterval(() => {
     }
   }
 }, 600_000);
+
+// ── Conversational Intake System ─────────────────────────────────────────────
+
+const intakeStore = new Map(); // sessionKey → IntakeSession
+
+const GREETING_PATTERNS = /^(hi|hello|hey|yo|sup|howdy|status|how are you)\b/i;
+
+function getIntakeSession(sessionKey) {
+  return intakeStore.get(sessionKey) || {
+    state: "idle",
+    originalMessage: null,
+    category: null,
+    details: null,
+    corrections: null,
+    createdAt: 0,
+    attemptCount: 0,
+  };
+}
+
+function setIntakeSession(sessionKey, session) {
+  intakeStore.set(sessionKey, session);
+}
+
+function clearIntakeSession(sessionKey) {
+  intakeStore.delete(sessionKey);
+}
+
+// ── Prompt Quality Scoring (0.0–1.0) ────────────────────────────────────────
+
+function scorePromptQuality(message) {
+  let score = 0;
+
+  // +0.2 if has goal/intent keywords
+  if (/\b(want|need|should|make|fix|add|create|deploy|check|find|update|remove|change|implement|build|write|set up|configure)\b/i.test(message)) {
+    score += 0.2;
+  }
+
+  // +0.2 if has file/repo references
+  if (/\b(\w+\.\w{2,4}|src\/|lib\/|components\/|scripts\/|config\/|\.mjs|\.ts|\.js|\.py)\b/.test(message) ||
+      /\b(repo|repository|package|module)\b/i.test(message)) {
+    score += 0.2;
+  }
+
+  // +0.2 if has specifics (code blocks, URLs, ticket IDs)
+  if (/```/.test(message) ||
+      /https?:\/\/\S+/.test(message) ||
+      /\b(PORT-\d+|AD-\d+|[A-Z]+-\d+)\b/.test(message)) {
+    score += 0.2;
+  }
+
+  // +0.2 if has constraints/context
+  if (/\b(don't|dont|make sure|ensure|like we did|pattern|constraint|environment|prod|dev|staging)\b/i.test(message) ||
+      /\b(instead of|rather than|without|keep|preserve|maintain)\b/i.test(message)) {
+    score += 0.2;
+  }
+
+  // +0.2 if length > 300 chars
+  if (message.length > 300) {
+    score += 0.2;
+  }
+
+  return Math.min(score, 1.0);
+}
+
+// ── Context Extraction (for pre-filling step 3) ────────────────────────────
+
+function extractPromptContext(message) {
+  // Category detection
+  let category = "general";
+  if (/\b(write|code|fix|add|create|implement|build|refactor|function|class|component|bug)\b/i.test(message)) {
+    category = "coding";
+  } else if (/\b(deploy|terraform|infrastructure|ci|cd|env|environment|server|docker|k8s)\b/i.test(message)) {
+    category = "devops";
+  } else if (/\b(find|research|look up|search|what is|how does|explain)\b/i.test(message)) {
+    category = "research";
+  } else if (/\b(review|audit|check|examine|pr|pull request)\b/i.test(message)) {
+    category = "review";
+  } else if (/\b(jira|slack|sprint|board|ticket|standup|planning|schedule)\b/i.test(message)) {
+    category = "pm";
+  }
+
+  // Goal extraction — first sentence or clause with a verb
+  const sentences = message.split(/[.!?\n]/).filter(s => s.trim().length > 10);
+  const goal = sentences[0]?.trim() || message.slice(0, 150).trim();
+
+  // Scope — file paths, repo names, ticket IDs, URLs
+  const paths = message.match(/\b[\w\-./]+\.\w{2,4}\b/g) || [];
+  const tickets = message.match(/\b[A-Z]+-\d+\b/g) || [];
+  const urls = message.match(/https?:\/\/\S+/g) || [];
+  const scope = [...new Set([...paths, ...tickets, ...urls])].join(", ") || null;
+
+  return { category, goal, scope };
+}
+
+// ── Category-Aware Step 2 Questions ─────────────────────────────────────────
+
+function getStep2Question(category) {
+  switch (category) {
+    case "coding":
+      return "What files or repos are involved? What should work differently when done?";
+    case "devops":
+      return "Which environment? What needs to change?";
+    case "research":
+      return "What specifically should I find? Any URLs or repos to start with?";
+    case "review":
+      return "Which files or PRs? What should I focus on?";
+    case "pm":
+      return "Which board or channel? What action should I take?";
+    default:
+      return "What's the end goal? Any files, repos, or constraints I should know about?";
+  }
+}
+
+// ── Category Detection from Step 1 Answer ───────────────────────────────────
+
+function categorizeStep1(answer) {
+  const lower = answer.toLowerCase().trim();
+  if (/^1\b|write|modify|code|coding/i.test(lower)) return "coding";
+  if (/^2\b|research|look.*up|search|find/i.test(lower)) return "research";
+  if (/^3\b|devops|deploy|infra/i.test(lower)) return "devops";
+  if (/^4\b|review|explain/i.test(lower)) return "review";
+  if (/^5\b|project|jira|slack|plan/i.test(lower)) return "pm";
+  // Freeform — try to detect from content
+  return extractPromptContext(answer).category;
+}
+
+// ── Step 3 Summary Builder ──────────────────────────────────────────────────
+
+function buildStep3Summary(category, goal, scope) {
+  const lines = ["Here's what I understand:", ""];
+  lines.push(`**Task:** ${category}`);
+  lines.push(`**Goal:** ${goal}`);
+  if (scope) lines.push(`**Scope:** ${scope}`);
+  lines.push("");
+  lines.push('Reply "go" to proceed, or add any corrections:');
+  return lines.join("\n");
+}
+
+// ── Enriched Prompt Builder ─────────────────────────────────────────────────
+
+function buildEnrichedPrompt({ originalMessage, category, details, corrections }) {
+  const parts = [];
+  if (category) parts.push(`[Category: ${category}]`);
+  if (details) parts.push(`[Details: ${details}]`);
+  if (corrections) parts.push(`[Additional: ${corrections}]`);
+  parts.push("");
+  parts.push(originalMessage);
+  return parts.join("\n");
+}
+
+// ── Confirm Shortcuts ───────────────────────────────────────────────────────
+
+function isConfirmation(message) {
+  return /^(go|yes|do it|proceed|ok|okay|yep|yup|sure|confirm|lgtm|y)$/i.test(message.trim());
+}
+
+function sendSyntheticResponse(res, id, created, content, stream) {
+  if (stream) {
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-assistant", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] })}\n\n`);
+    res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-assistant", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+    res.write("data: [DONE]\n\n");
+    res.end();
+  } else {
+    jsonResponse(res, 200, {
+      id, object: "chat.completion", created, model: "engie-assistant",
+      choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    });
+  }
+}
+
+function fireDualComparison({ prompt, category, details, claudeText, claudeDuration, sessionKey, complexityScore }) {
+  (async () => {
+    const start = Date.now();
+    try {
+      const resp = await fetch("http://localhost:11434/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer ollama" },
+        body: JSON.stringify({
+          model: "engie-coder:latest",
+          messages: [
+            { role: "system", content: "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations." },
+            { role: "user", content: prompt },
+          ],
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const data = await resp.json();
+      const engieText = data.choices?.[0]?.message?.content || "";
+      const engieDuration = Date.now() - start;
+
+      const collector = await getCollector();
+      if (collector) {
+        collector.collectComparison({
+          prompt,
+          goal: category,
+          context: details,
+          claudeResponse: claudeText,
+          claudeDurationMs: claudeDuration,
+          engieResponse: engieText,
+          engieDurationMs: engieDuration,
+          sessionKey,
+          complexityScore,
+        });
+      }
+      console.log(`[Training] Comparison stored (claude=${claudeDuration}ms engie=${engieDuration}ms engie_len=${engieText.length})`);
+    } catch (err) {
+      console.log(`[Training] Comparison failed: ${err.message}`);
+    }
+  })();
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -243,7 +478,9 @@ function invokeClaude(opts) {
 
   const jobId = randomUUID();
 
-  return new Promise((resolveJob, rejectJob) => {
+  return (async () => {
+    await claudeLimiter.acquire();
+    return new Promise((resolveJob, rejectJob) => {
     const args = ["-p", prompt, "--output-format", outputFormat];
 
     // stream-json requires --verbose in newer Claude Code versions
@@ -316,6 +553,7 @@ function invokeClaude(opts) {
     child.on("close", (code) => {
       clearTimeout(timer);
       activeJobs.delete(jobId);
+      claudeLimiter.release();
 
       if (code === 0) {
         try {
@@ -354,9 +592,11 @@ function invokeClaude(opts) {
     child.on("error", (err) => {
       clearTimeout(timer);
       activeJobs.delete(jobId);
+      claudeLimiter.release();
       rejectJob(err);
     });
   });
+  })();
 }
 
 // ── HTTP Server ──────────────────────────────────────────────────────────────
@@ -406,6 +646,11 @@ const server = createServer(async (req, res) => {
       online,
       activeJobs: jobs,
       defaultModel: DEFAULT_MODEL,
+      concurrency: {
+        running: claudeLimiter.current,
+        max: claudeLimiter.max,
+        queued: claudeLimiter.queue.length,
+      },
     });
   }
 
@@ -481,6 +726,8 @@ const server = createServer(async (req, res) => {
       return jsonResponse(res, 503, { error: "claude CLI not found" });
     }
 
+    await claudeLimiter.acquire();
+
     res.writeHead(200, {
       "Content-Type": "application/x-ndjson",
       "Transfer-Encoding": "chunked",
@@ -539,6 +786,7 @@ const server = createServer(async (req, res) => {
     );
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
+      // Note: release happens in the 'close' handler triggered by SIGTERM
       res.write(JSON.stringify({ type: "error", error: "timeout" }) + "\n");
       res.end();
     }, timeout);
@@ -546,6 +794,7 @@ const server = createServer(async (req, res) => {
     child.on("close", () => {
       clearTimeout(timer);
       activeJobs.delete(jobId);
+      claudeLimiter.release();
 
       // Fire-and-forget: collect tool-use trace for The Forge
       getToolCollector().then((tc) => {
@@ -564,6 +813,7 @@ const server = createServer(async (req, res) => {
     child.on("error", (err) => {
       clearTimeout(timer);
       activeJobs.delete(jobId);
+      claudeLimiter.release();
       res.write(
         JSON.stringify({ type: "error", error: err.message }) + "\n"
       );
@@ -626,48 +876,254 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    // ── Smart Routing ──────────────────────────────────────────────────
+    // Extract sessionKey from the request (OpenClaw embeds it in system messages or metadata)
+    const sessionKeyMatch = systemPrompt.match(/sessionKey:\s*(\S+)/);
+    const sessionKey = sessionKeyMatch?.[1] || body._sessionKey || "default";
+
+    const stream = body.stream === true;
+    const id = `chatcmpl-${randomUUID().slice(0, 8)}`;
+    const created = Math.floor(Date.now() / 1000);
+
+    // ── Conversational Intake ─────────────────────────────────────────
+    // Universal 3-step flow: runs in both training and production modes.
+    // Score prompt → route to full intake / skip-to-confirm / skip-all.
+
+    const existingClaudeSession = getSession(sessionKey);
+    const isFollowUp = !!existingClaudeSession && nonSystemMessages.length > 1;
+    const intake = getIntakeSession(sessionKey);
+
+    // Check if we're mid-intake (handle step responses)
+    if (intake.state !== "idle") {
+      // Bail out after too many attempts
+      if (intake.attemptCount > 3) {
+        console.log(`  [intake] giving up after ${intake.attemptCount} attempts, processing as-is`);
+        clearIntakeSession(sessionKey);
+        // Fall through to processing with original message
+      } else if (intake.state === "step1_intent") {
+        // User answered step 1 — categorize and ask step 2
+        const category = categorizeStep1(lastUserMessage);
+        setIntakeSession(sessionKey, {
+          ...intake,
+          state: "step2_details",
+          category,
+          attemptCount: intake.attemptCount + 1,
+        });
+        console.log(`  [intake] step1→step2 category=${category} session=${sessionKey}`);
+        return sendSyntheticResponse(res, id, created, getStep2Question(category), stream);
+      } else if (intake.state === "step2_details") {
+        // User answered step 2 — build summary for step 3
+        const details = lastUserMessage;
+        const ctx = extractPromptContext(intake.originalMessage + " " + details);
+        setIntakeSession(sessionKey, {
+          ...intake,
+          state: "step3_confirm",
+          details,
+          attemptCount: intake.attemptCount + 1,
+        });
+        const summary = buildStep3Summary(intake.category || ctx.category, ctx.goal, ctx.scope);
+        console.log(`  [intake] step2→step3 session=${sessionKey}`);
+        return sendSyntheticResponse(res, id, created, summary, stream);
+      } else if (intake.state === "step3_confirm") {
+        // User confirmed or added corrections
+        const isGo = isConfirmation(lastUserMessage);
+        const corrections = isGo ? null : lastUserMessage;
+        const finalIntake = { ...intake, corrections, state: "processing" };
+        clearIntakeSession(sessionKey);
+
+        // Build enriched prompt and fall through to processing
+        lastUserMessage = buildEnrichedPrompt({
+          originalMessage: finalIntake.originalMessage,
+          category: finalIntake.category,
+          details: finalIntake.details,
+          corrections: finalIntake.corrections,
+        });
+        console.log(`  [intake] step3→processing session=${sessionKey} corrections=${!!corrections}`);
+        // Fall through to routing/processing below
+      }
+    }
+
+    // For messages NOT mid-intake: decide whether to start intake
+    if (intake.state === "idle" && !isFollowUp) {
+      const userMsg = lastUserMessage;
+
+      // Escape hatches
+      const isEscaped = userMsg.startsWith("!");
+      const isGreeting = GREETING_PATTERNS.test(userMsg) && userMsg.length < 30;
+
+      if (isEscaped) {
+        // Strip ! and process immediately
+        lastUserMessage = userMsg.slice(1).trim();
+      } else if (!isGreeting) {
+        const quality = scorePromptQuality(userMsg);
+        console.log(`  [intake] quality=${quality.toFixed(2)} session=${sessionKey}`);
+
+        if (quality < 0.5) {
+          // Full 3-step intake
+          setIntakeSession(sessionKey, {
+            state: "step1_intent",
+            originalMessage: userMsg,
+            category: null,
+            details: null,
+            corrections: null,
+            createdAt: Date.now(),
+            attemptCount: 1,
+          });
+          console.log(`  [intake] starting full intake session=${sessionKey}`);
+          const step1Prompt = [
+            "What do you need help with? Pick one or describe:",
+            "",
+            "1. Write or modify code",
+            "2. Research / look something up",
+            "3. DevOps / deployment task",
+            "4. Review or explain existing code",
+            "5. Project management (Jira, Slack, planning)",
+            "",
+            "Or just describe what you need:",
+          ].join("\n");
+          return sendSyntheticResponse(res, id, created, step1Prompt, stream);
+        } else if (quality < 0.8) {
+          // Skip to step 3 — pre-fill summary from what we can extract
+          const ctx = extractPromptContext(userMsg);
+          setIntakeSession(sessionKey, {
+            state: "step3_confirm",
+            originalMessage: userMsg,
+            category: ctx.category,
+            details: null,
+            corrections: null,
+            createdAt: Date.now(),
+            attemptCount: 1,
+          });
+          const summary = buildStep3Summary(ctx.category, ctx.goal, ctx.scope);
+          console.log(`  [intake] skip-to-confirm quality=${quality.toFixed(2)} session=${sessionKey}`);
+          return sendSyntheticResponse(res, id, created, summary, stream);
+        }
+        // quality >= 0.8 — skip all intake, fall through to processing
+        console.log(`  [intake] skip-all quality=${quality.toFixed(2)} session=${sessionKey}`);
+      }
+    }
+
+    // ── Training Mode ──────────────────────────────────────────────────
+    // Dual-send: Claude (primary, shown to user) + engie-coder (background comparison)
+    if (TRAINING_MODE) {
+      const intakeCategory = intake.category;
+      const intakeDetails = intake.details;
+
+      // Build prompt for Claude
+      let prompt;
+      if (isFollowUp) {
+        prompt = lastUserMessage;
+      } else {
+        const recentMsgs = nonSystemMessages.slice(-20);
+        const turns = [];
+        for (const msg of recentMsgs) {
+          const text = flattenContent(msg.content);
+          if (msg.role === "user") turns.push(`User: ${text}`);
+          else if (msg.role === "assistant") turns.push(`Assistant: ${text}`);
+        }
+        prompt = turns.join("\n\n");
+      }
+
+      if (!claudeBin()) {
+        return jsonResponse(res, 503, { error: { message: "claude CLI not found", type: "server_error" } });
+      }
+      const online = await checkOnline();
+      if (!online) {
+        return jsonResponse(res, 503, { error: { message: "Anthropic API unreachable", type: "server_error" } });
+      }
+
+      const complexity = router.scoreComplexity({ prompt: lastUserMessage, hasCode: /```/.test(lastUserMessage) });
+      console.log(`  [training] dual-send session=${sessionKey} follow_up=${isFollowUp} complexity=${complexity.toFixed(2)}`);
+
+      try {
+        const claudeStart = Date.now();
+        const result = await invokeClaude({
+          prompt,
+          systemPrompt: isFollowUp ? undefined : (systemPrompt || undefined),
+          outputFormat: "json",
+          permissionMode: "bypassPermissions",
+          disallowedTools: ENGIE_DISALLOWED_TOOLS,
+          maxTurns: ENGIE_MAX_TURNS,
+          addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
+          timeoutMs: ENGIE_TIMEOUT_MS,
+          mcpConfig: ENGIE_MCP_CONFIG,
+          resumeSession: isFollowUp ? existingClaudeSession.sessionId : undefined,
+        });
+        const claudeDuration = Date.now() - claudeStart;
+        if (result.session_id) setSession(sessionKey, result.session_id);
+        const claudeText = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
+
+        // Fire-and-forget: background comparison to engie-coder
+        fireDualComparison({ prompt, category: intakeCategory, details: intakeDetails, claudeText, claudeDuration, sessionKey, complexityScore: complexity });
+
+        if (stream) {
+          res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "claude-subscription", choices: [{ index: 0, delta: { role: "assistant", content: claudeText }, finish_reason: null }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "claude-subscription", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        } else {
+          jsonResponse(res, 200, {
+            id, object: "chat.completion", created, model: "claude-subscription",
+            choices: [{ index: 0, message: { role: "assistant", content: claudeText }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          });
+        }
+      } catch (e) {
+        if (stream) {
+          if (!res.headersSent) res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "claude-subscription", choices: [{ index: 0, delta: { content: `Error: ${e.message}` }, finish_reason: "stop" }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        } else {
+          jsonResponse(res, 500, { error: { message: e.message, type: "server_error" } });
+        }
+      }
+      return;
+    }
+
+    // ── Smart Routing (production mode) ─────────────────────────────────
     // Use the Router to decide: Claude Code (heavy) vs Ollama (light)
     const routeResult = await router.routeAndCollect({
       prompt: lastUserMessage,
       hasCode: /```/.test(lastUserMessage),
     });
 
-    // Extract sessionKey from the request (OpenClaw embeds it in system messages or metadata)
-    const sessionKeyMatch = systemPrompt.match(/sessionKey:\s*(\S+)/);
-    const sessionKey = sessionKeyMatch?.[1] || body._sessionKey || "default";
-
     console.log(`  stream=${body.stream} msgs=${messages.length} route=${routeResult.backend} score=${routeResult.score?.toFixed(2)} session=${sessionKey}`);
 
-    const stream = body.stream === true;
-    const id = `chatcmpl-${randomUUID().slice(0, 8)}`;
-    const created = Math.floor(Date.now() / 1000);
-
-    // ── Route to Ollama for light tasks ──────────────────────────────
+    // ── Route to Ollama for light tasks (with agentic tool loop) ────
     if (routeResult.backend === "ollama") {
-      console.log(`  → Ollama (${routeResult.reason})`);
+      console.log(`  → Ollama + Tool Loop (${routeResult.reason})`);
       try {
-        const ollamaResp = await forwardToOllama(messages, stream);
+        const loopResult = await runToolLoop({
+          prompt: lastUserMessage,
+          systemPrompt: systemPrompt !== ENGIE_SYSTEM_PREAMBLE ? systemPrompt : "",
+          model: "engie-coder:latest",
+          maxIterations: 10,
+          maxToolCalls: 25,
+          timeoutMs: 120_000,
+        });
+
+        const responseText = loopResult.response || "(no response)";
+        console.log(`  → Tool loop done: ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, ${loopResult.finishReason}`);
 
         if (stream) {
-          res.writeHead(ollamaResp.status, {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          });
-          // Pipe Ollama's SSE stream directly
-          for await (const chunk of ollamaResp.body) {
-            res.write(chunk);
-          }
+          res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-coder", choices: [{ index: 0, delta: { role: "assistant", content: responseText }, finish_reason: null }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-coder", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
           res.end();
         } else {
-          const data = await ollamaResp.json();
-          return jsonResponse(res, ollamaResp.status, data);
+          return jsonResponse(res, 200, {
+            id, object: "chat.completion", created, model: "engie-coder",
+            choices: [{ index: 0, message: { role: "assistant", content: responseText }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            _meta: { iterations: loopResult.iterations, toolCalls: loopResult.toolCalls.length, finishReason: loopResult.finishReason, durationMs: loopResult.totalDurationMs },
+          });
         }
         return;
       } catch (e) {
-        console.log(`  → Ollama failed (${e.message}), falling through to Claude`);
-        // Fall through to Claude if Ollama fails
+        console.log(`  → Tool loop failed (${e.message}), falling through to Claude`);
+        // Fall through to Claude if tool loop fails
       }
     }
 
@@ -683,17 +1139,13 @@ const server = createServer(async (req, res) => {
       return jsonResponse(res, 503, { error: { message: "Anthropic API unreachable", type: "server_error" } });
     }
 
-    // Check for existing session (multi-turn support)
-    const existingSession = getSession(sessionKey);
-    const isFollowUp = !!existingSession && nonSystemMessages.length > 1;
-
     // For follow-ups with an existing session, use --resume with just the new message
     // For first messages, send the full prompt
     let prompt;
     if (isFollowUp) {
       // Only send the latest user message — Claude Code will have context from the session
       prompt = lastUserMessage;
-      console.log(`  → Resuming session ${existingSession.sessionId.slice(0, 8)}...`);
+      console.log(`  → Resuming session ${existingClaudeSession.sessionId.slice(0, 8)}...`);
     } else {
       // First message — build full context prompt
       const MAX_CONTEXT_MESSAGES = 20;
@@ -728,7 +1180,7 @@ const server = createServer(async (req, res) => {
           addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
           timeoutMs: ENGIE_TIMEOUT_MS,
           mcpConfig: ENGIE_MCP_CONFIG,
-          resumeSession: isFollowUp ? existingSession.sessionId : undefined,
+          resumeSession: isFollowUp ? existingClaudeSession.sessionId : undefined,
         });
 
         // Store session for follow-up
@@ -828,7 +1280,7 @@ const server = createServer(async (req, res) => {
         addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
         timeoutMs: ENGIE_TIMEOUT_MS,
         mcpConfig: ENGIE_MCP_CONFIG,
-        resumeSession: isFollowUp ? existingSession.sessionId : undefined,
+        resumeSession: isFollowUp ? existingClaudeSession.sessionId : undefined,
       });
 
       // Store session for follow-up
@@ -919,7 +1371,10 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  default model: ${DEFAULT_MODEL}`);
   console.log(`  workspace:     ${resolve(PROJECT_DIR, "workspace")}`);
   console.log("");
-  console.log(`  smart router:  ON (score threshold: dynamic)`);
+  console.log(`  concurrency:   max ${claudeLimiter.max} (CLAUDE_MAX_CONCURRENT)`);
+  console.log(`  training mode: ${TRAINING_MODE ? "ON (dual-send)" : "OFF (smart routing)"}`);
+  console.log(`  smart router:  ${TRAINING_MODE ? "BYPASSED" : "ON (score threshold: dynamic)"}`);
+  console.log(`  intake:        ON (quality scoring, 3-step flow)`);
   console.log(`  sessions:      ON (TTL: ${SESSION_TTL_MS / 60000}min)`);
   console.log("");
   console.log("Endpoints:");
