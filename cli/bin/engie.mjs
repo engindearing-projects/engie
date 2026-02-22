@@ -30,6 +30,7 @@ const HELP = `
     engie stop                Stop all services
     engie observe [type] <text> [--project p] [--tag t]
                               Save an observation to memory
+    engie forge <cmd>         Training pipeline (status, train, eval, compare, data, rollback)
 
   ${chalk.cyan("Options:")}
     -s, --session <key>   Session key (default: agent:engie:cli)
@@ -47,7 +48,7 @@ const HELP = `
 `;
 
 // Subcommands that map to command modules
-const SUBCOMMANDS = new Set(["init", "status", "doctor", "start", "stop", "observe", "web"]);
+const SUBCOMMANDS = new Set(["init", "status", "doctor", "start", "stop", "observe", "web", "forge"]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -111,6 +112,10 @@ async function main() {
     }
     case "web": {
       const { run } = await import("../commands/web.mjs");
+      return run({ args: subArgs });
+    }
+    case "forge": {
+      const { run } = await import("../commands/forge.mjs");
       return run({ args: subArgs });
     }
     default:

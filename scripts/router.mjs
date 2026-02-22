@@ -9,6 +9,7 @@
 
 const DEFAULT_PROXY_URL = "http://127.0.0.1:18791";
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
+const DEFAULT_LOCAL_MODEL = "engie-coder:latest";
 
 // Keywords / patterns that suggest a task needs the heavy brain
 const HEAVY_PATTERNS = [
@@ -38,9 +39,12 @@ export class Router {
   constructor(opts = {}) {
     this.proxyUrl = opts.proxyUrl || DEFAULT_PROXY_URL;
     this.ollamaUrl = opts.ollamaUrl || DEFAULT_OLLAMA_URL;
+    this.localModel = opts.localModel || DEFAULT_LOCAL_MODEL;
     this.forceBackend = opts.forceBackend || null; // "claude" | "ollama" | null
     this.onlineCache = null;
     this.ollamaCache = null;
+    this._collector = null;
+    this._dynamicThreshold = null; // loaded from forge DB
   }
 
   /** Check if Claude Code proxy is reachable and online */
@@ -97,9 +101,11 @@ export class Router {
     let score = 0.5; // neutral starting point
 
     // Check heavy patterns
+    let heavyHits = 0;
     for (const pat of HEAVY_PATTERNS) {
       if (pat.test(prompt)) {
         score += 0.15;
+        heavyHits++;
       }
     }
 
@@ -122,8 +128,8 @@ export class Router {
       score += 0.15;
     }
 
-    // Short casual messages are light
-    if (prompt.length < 50 && !hasCode) {
+    // Short casual messages are light — but only if no heavy patterns matched
+    if (prompt.length < 50 && !hasCode && heavyHits === 0) {
       score -= 0.2;
     }
 
@@ -168,9 +174,10 @@ export class Router {
     if (claudeUp && ollamaUp) {
       return {
         backend: wantsClaude ? "claude" : "ollama",
+        localModel: this.localModel,
         reason: wantsClaude
           ? `complexity ${score.toFixed(2)} >= ${threshold} threshold`
-          : `complexity ${score.toFixed(2)} < ${threshold} threshold`,
+          : `complexity ${score.toFixed(2)} < ${threshold} threshold (→ ${this.localModel})`,
         score,
         claudeAvailable: true,
         ollamaAvailable: true,
@@ -181,6 +188,7 @@ export class Router {
     if (claudeUp && !ollamaUp) {
       return {
         backend: "claude",
+        localModel: this.localModel,
         reason: "ollama unavailable, using claude",
         score,
         claudeAvailable: true,
@@ -192,7 +200,8 @@ export class Router {
     if (!claudeUp && ollamaUp) {
       return {
         backend: "ollama",
-        reason: "claude unavailable (offline?), falling back to ollama",
+        localModel: this.localModel,
+        reason: `claude unavailable (offline?), falling back to ${this.localModel}`,
         score,
         claudeAvailable: false,
         ollamaAvailable: true,
@@ -202,11 +211,81 @@ export class Router {
     // Nothing available
     return {
       backend: "ollama",
+      localModel: this.localModel,
       reason: "no backends reachable",
       score,
       claudeAvailable: false,
       ollamaAvailable: false,
     };
+  }
+
+  /**
+   * Route a task AND fire a background Forge collection request.
+   * Drop-in replacement for route() that feeds the training pipeline.
+   *
+   * @param {object} opts - Same as route()
+   * @returns {Promise<object>} Same as route()
+   */
+  async routeAndCollect(opts) {
+    const threshold = await this.getDynamicThreshold(opts.threshold);
+    const result = await this.route({ ...opts, threshold });
+
+    // Fire-and-forget: collect training pair
+    this._getCollector().then((collector) => {
+      if (collector) {
+        collector.collectPair({
+          prompt: opts.prompt,
+          routedTo: result.backend,
+          complexityScore: result.score,
+        });
+      }
+    }).catch(() => {});
+
+    return result;
+  }
+
+  /**
+   * Get dynamic threshold based on model benchmark score from forge DB.
+   * Falls back to the provided default or 0.6.
+   *
+   * @param {number} [fallback=0.6] - Default threshold if DB unavailable
+   * @returns {Promise<number>}
+   */
+  async getDynamicThreshold(fallback = 0.6) {
+    if (this._dynamicThreshold !== null) return this._dynamicThreshold;
+
+    try {
+      const { getActiveVersion } = await import("../trainer/forge-db.js");
+      const active = getActiveVersion();
+      if (active && active.benchmark_score != null) {
+        const score = active.benchmark_score;
+        if (score >= 85) this._dynamicThreshold = 0.35;
+        else if (score >= 75) this._dynamicThreshold = 0.45;
+        else if (score >= 65) this._dynamicThreshold = 0.50;
+        else if (score >= 55) this._dynamicThreshold = 0.55;
+        else this._dynamicThreshold = 0.60;
+
+        // Refresh threshold every 5 minutes
+        setTimeout(() => { this._dynamicThreshold = null; }, 300_000);
+        return this._dynamicThreshold;
+      }
+    } catch {
+      // Forge not set up yet — use fallback
+    }
+
+    return fallback;
+  }
+
+  /** Lazy-load the Forge collector */
+  async _getCollector() {
+    if (this._collector) return this._collector;
+    try {
+      const { Collector } = await import("../trainer/collector.mjs");
+      this._collector = new Collector();
+      return this._collector;
+    } catch {
+      return null;
+    }
   }
 }
 

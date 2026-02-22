@@ -15,6 +15,7 @@ const HELP_TEXT = [
   "  /status            Show service health",
   "  /memory [query]    Search memory (no query = show recent)",
   "  /observe <text>    Save an observation to memory",
+  "  /forge [cmd]       Training pipeline (status, train, eval, data)",
   "  /coach             Toggle coaching mode",
   "  /explain [concept] Get a friendly explanation",
   "  /suggest           Get next-step suggestions",
@@ -207,6 +208,46 @@ export function useSlashCommands({ gateway, app, setMessages, setStreamText, sen
           setMessages((prev) => [...prev, sysMsg(`Failed to save: ${err.message}`)]);
         }
 
+        return true;
+      }
+
+      // /forge [cmd]
+      if (lower === "/forge" || lower.startsWith("/forge ")) {
+        const forgeArgs = trimmed.slice("/forge".length).trim();
+        const forgeCmd = forgeArgs || "status";
+        setMessages((prev) => [
+          ...prev,
+          sysMsg(`Running forge ${forgeCmd}...`),
+        ]);
+
+        try {
+          const forgeCli = await import("../../../trainer/forge-cli.mjs").catch(() => null);
+          if (forgeCli) {
+            // Capture console output
+            const origLog = console.log;
+            let output = [];
+            console.log = (...args) => output.push(args.join(" "));
+            try {
+              await forgeCli.run({ args: forgeCmd.split(/\s+/) });
+            } finally {
+              console.log = origLog;
+            }
+            setMessages((prev) => [
+              ...prev,
+              sysMsg(output.join("\n") || "Done."),
+            ]);
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              sysMsg("Forge not available. Run: bash ~/engie/trainer/setup.sh"),
+            ]);
+          }
+        } catch (err) {
+          setMessages((prev) => [
+            ...prev,
+            sysMsg(`Forge error: ${err.message}`),
+          ]);
+        }
         return true;
       }
 

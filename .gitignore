@@ -76,3 +76,16 @@ engie-mobile/android/
 
 # MCP bridge runtime
 mcp-bridge/node_modules/
+
+# Forge / trainer runtime
+trainer/.venv/
+trainer/models/
+trainer/data/raw/
+trainer/data/traces/
+trainer/data/train.jsonl
+trainer/data/valid.jsonl
+trainer/db/
+trainer/tools/
+trainer/domains/.active
+engie-web/
+config/media/inbound/

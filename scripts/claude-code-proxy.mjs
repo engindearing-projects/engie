@@ -16,6 +16,34 @@ import { spawn, execSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { Router } from "./router.mjs";
+
+// ── Forge Collectors (lazy-loaded) ───────────────────────────────────────────
+let _collector = null;
+async function getCollector() {
+  if (_collector) return _collector;
+  try {
+    const { Collector } = await import("../trainer/collector.mjs");
+    _collector = new Collector();
+    console.log("[Forge] Collector initialized");
+    return _collector;
+  } catch {
+    return null; // Forge not set up yet — silently skip
+  }
+}
+
+let _toolCollector = null;
+async function getToolCollector() {
+  if (_toolCollector) return _toolCollector;
+  try {
+    const { ToolCollector } = await import("../trainer/tool-collector.mjs");
+    _toolCollector = new ToolCollector();
+    console.log("[Forge] ToolCollector initialized");
+    return _toolCollector;
+  } catch {
+    return null;
+  }
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
@@ -59,6 +87,44 @@ const ENGIE_SYSTEM_PREAMBLE = [
 
 const activeJobs = new Map(); // jobId -> { process, startedAt, prompt }
 let onlineStatus = null; // cached: { online: bool, checkedAt: number }
+
+// ── Smart Router ─────────────────────────────────────────────────────────────
+
+const router = new Router({
+  proxyUrl: `http://127.0.0.1:${PORT}`,
+  ollamaUrl: "http://localhost:11434",
+  localModel: "engie-coder:latest",
+});
+
+// ── Session Tracking (multi-turn) ────────────────────────────────────────────
+// Maps sessionKey → { sessionId, lastActivity }
+// Claude Code sessions expire after 30 min of inactivity
+const SESSION_TTL_MS = 30 * 60 * 1000;
+const sessionStore = new Map();
+
+function getSession(sessionKey) {
+  const entry = sessionStore.get(sessionKey);
+  if (!entry) return null;
+  if (Date.now() - entry.lastActivity > SESSION_TTL_MS) {
+    sessionStore.delete(sessionKey);
+    return null;
+  }
+  return entry;
+}
+
+function setSession(sessionKey, sessionId) {
+  sessionStore.set(sessionKey, { sessionId, lastActivity: Date.now() });
+}
+
+// Clean up expired sessions every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of sessionStore) {
+    if (now - entry.lastActivity > SESSION_TTL_MS) {
+      sessionStore.delete(key);
+    }
+  }
+}, 600_000);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -116,6 +182,22 @@ async function checkOnline() {
   }
 }
 
+/** Forward an OpenAI-compatible chat request to Ollama */
+async function forwardToOllama(messages, stream = false) {
+  const ollamaUrl = "http://localhost:11434/v1/chat/completions";
+  const resp = await fetch(ollamaUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer ollama" },
+    body: JSON.stringify({
+      model: "engie-coder:latest",
+      messages,
+      stream,
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  return resp;
+}
+
 function jsonResponse(res, status, data) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
@@ -156,12 +238,16 @@ function invokeClaude(opts) {
     noSessionPersistence,
     mcpConfig,
     strictMcpConfig,
+    captureRawOutput = false, // return raw stdout in result for tool-trace collection
   } = opts;
 
   const jobId = randomUUID();
 
   return new Promise((resolveJob, rejectJob) => {
     const args = ["-p", prompt, "--output-format", outputFormat];
+
+    // stream-json requires --verbose in newer Claude Code versions
+    if (outputFormat === "stream-json") args.push("--verbose");
 
     if (model) args.push("--model", model);
     if (systemPrompt) args.push("--system-prompt", systemPrompt);
@@ -234,7 +320,7 @@ function invokeClaude(opts) {
       if (code === 0) {
         try {
           const parsed = JSON.parse(stdout);
-          resolveJob({
+          const result = {
             jobId,
             success: true,
             result: parsed.result || parsed,
@@ -243,14 +329,18 @@ function invokeClaude(opts) {
             num_turns: parsed.num_turns,
             session_id: parsed.session_id,
             model: parsed.model,
-          });
+          };
+          if (captureRawOutput) result._rawOutput = stdout;
+          resolveJob(result);
         } catch {
-          resolveJob({
+          const result = {
             jobId,
             success: true,
             result: stdout.trim(),
             raw: true,
-          });
+          };
+          if (captureRawOutput) result._rawOutput = stdout;
+          resolveJob(result);
         }
       } else {
         rejectJob(
@@ -402,6 +492,7 @@ const server = createServer(async (req, res) => {
       body.prompt,
       "--output-format",
       "stream-json",
+      "--verbose",
     ];
 
     if (body.model) args.push("--model", body.model);
@@ -417,14 +508,20 @@ const server = createServer(async (req, res) => {
     });
 
     const jobId = randomUUID();
+    const startedAt = Date.now();
     activeJobs.set(jobId, {
       process: child,
-      startedAt: Date.now(),
+      startedAt,
       prompt: body.prompt.slice(0, 200),
     });
 
+    // Capture full stream output for tool-use training data
+    let streamBuffer = "";
+
     // Forward stream-json chunks to HTTP response
     child.stdout.on("data", (chunk) => {
+      const str = chunk.toString();
+      streamBuffer += str;
       res.write(chunk);
     });
 
@@ -449,6 +546,18 @@ const server = createServer(async (req, res) => {
     child.on("close", () => {
       clearTimeout(timer);
       activeJobs.delete(jobId);
+
+      // Fire-and-forget: collect tool-use trace for The Forge
+      getToolCollector().then((tc) => {
+        if (tc && streamBuffer.length > 100) {
+          tc.collectTrace({
+            prompt: body.prompt,
+            streamOutput: streamBuffer,
+            durationMs: Date.now() - startedAt,
+          });
+        }
+      }).catch(() => {});
+
       res.end();
     });
 
@@ -476,7 +585,7 @@ const server = createServer(async (req, res) => {
   }
 
   // ── POST /v1/chat/completions ─────────────────────────────────────────
-  // OpenAI-compatible chat completions — routes through claude -p
+  // OpenAI-compatible chat completions — smart routed + session-aware
   if (url.pathname === "/v1/chat/completions" && req.method === "POST") {
     let body;
     try {
@@ -485,24 +594,12 @@ const server = createServer(async (req, res) => {
       return jsonResponse(res, 400, { error: { message: e.message, type: "invalid_request_error" } });
     }
 
-    console.log(`  stream=${body.stream} model=${body.model} messages=${(body.messages||[]).length}`);
-
     const messages = body.messages || [];
     if (messages.length === 0) {
       return jsonResponse(res, 400, { error: { message: "messages is required", type: "invalid_request_error" } });
     }
 
-    if (!claudeBin()) {
-      return jsonResponse(res, 503, { error: { message: "claude CLI not found", type: "server_error" } });
-    }
-
-    const online = await checkOnline();
-    if (!online) {
-      return jsonResponse(res, 503, { error: { message: "Anthropic API unreachable", type: "server_error" } });
-    }
-
-    // Convert messages array to a single prompt for claude -p
-    // msg.content can be a string OR an array of content blocks [{type:"text",text:"..."}]
+    // msg.content can be a string OR an array of content blocks
     function flattenContent(content) {
       if (typeof content === "string") return content;
       if (Array.isArray(content)) {
@@ -514,11 +611,8 @@ const server = createServer(async (req, res) => {
       return String(content);
     }
 
-    // Extract system messages, then take only the last N non-system messages
-    // to avoid E2BIG when OpenClaw sends full conversation history.
-    // claude -p is stateless — it only needs recent context.
-    const MAX_CONTEXT_MESSAGES = 20;
-
+    // Extract the last user message for routing decisions
+    let lastUserMessage = "";
     let systemPrompt = ENGIE_SYSTEM_PREAMBLE;
     const nonSystemMessages = [];
     for (const msg of messages) {
@@ -526,30 +620,95 @@ const server = createServer(async (req, res) => {
         systemPrompt += "\n\n" + flattenContent(msg.content);
       } else {
         nonSystemMessages.push(msg);
+        if (msg.role === "user") {
+          lastUserMessage = flattenContent(msg.content);
+        }
       }
     }
 
-    // Keep only the last N messages for context
-    const recentMessages = nonSystemMessages.slice(-MAX_CONTEXT_MESSAGES);
+    // ── Smart Routing ──────────────────────────────────────────────────
+    // Use the Router to decide: Claude Code (heavy) vs Ollama (light)
+    const routeResult = await router.routeAndCollect({
+      prompt: lastUserMessage,
+      hasCode: /```/.test(lastUserMessage),
+    });
 
-    const turns = [];
-    for (const msg of recentMessages) {
-      const text = flattenContent(msg.content);
-      if (msg.role === "user") {
-        turns.push(`User: ${text}`);
-      } else if (msg.role === "assistant") {
-        turns.push(`Assistant: ${text}`);
-      }
-    }
-    const prompt = turns.join("\n\n");
+    // Extract sessionKey from the request (OpenClaw embeds it in system messages or metadata)
+    const sessionKeyMatch = systemPrompt.match(/sessionKey:\s*(\S+)/);
+    const sessionKey = sessionKeyMatch?.[1] || body._sessionKey || "default";
+
+    console.log(`  stream=${body.stream} msgs=${messages.length} route=${routeResult.backend} score=${routeResult.score?.toFixed(2)} session=${sessionKey}`);
 
     const stream = body.stream === true;
     const id = `chatcmpl-${randomUUID().slice(0, 8)}`;
     const created = Math.floor(Date.now() / 1000);
 
-    // Both streaming and non-streaming use the same blocking invocation.
-    // claude -p returns a single JSON result; for SSE mode we wrap it
-    // as a single content chunk + [DONE].
+    // ── Route to Ollama for light tasks ──────────────────────────────
+    if (routeResult.backend === "ollama") {
+      console.log(`  → Ollama (${routeResult.reason})`);
+      try {
+        const ollamaResp = await forwardToOllama(messages, stream);
+
+        if (stream) {
+          res.writeHead(ollamaResp.status, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          });
+          // Pipe Ollama's SSE stream directly
+          for await (const chunk of ollamaResp.body) {
+            res.write(chunk);
+          }
+          res.end();
+        } else {
+          const data = await ollamaResp.json();
+          return jsonResponse(res, ollamaResp.status, data);
+        }
+        return;
+      } catch (e) {
+        console.log(`  → Ollama failed (${e.message}), falling through to Claude`);
+        // Fall through to Claude if Ollama fails
+      }
+    }
+
+    // ── Route to Claude Code for heavy tasks ─────────────────────────
+    console.log(`  → Claude Code (${routeResult.reason})`);
+
+    if (!claudeBin()) {
+      return jsonResponse(res, 503, { error: { message: "claude CLI not found", type: "server_error" } });
+    }
+
+    const online = await checkOnline();
+    if (!online) {
+      return jsonResponse(res, 503, { error: { message: "Anthropic API unreachable", type: "server_error" } });
+    }
+
+    // Check for existing session (multi-turn support)
+    const existingSession = getSession(sessionKey);
+    const isFollowUp = !!existingSession && nonSystemMessages.length > 1;
+
+    // For follow-ups with an existing session, use --resume with just the new message
+    // For first messages, send the full prompt
+    let prompt;
+    if (isFollowUp) {
+      // Only send the latest user message — Claude Code will have context from the session
+      prompt = lastUserMessage;
+      console.log(`  → Resuming session ${existingSession.sessionId.slice(0, 8)}...`);
+    } else {
+      // First message — build full context prompt
+      const MAX_CONTEXT_MESSAGES = 20;
+      const recentMessages = nonSystemMessages.slice(-MAX_CONTEXT_MESSAGES);
+      const turns = [];
+      for (const msg of recentMessages) {
+        const text = flattenContent(msg.content);
+        if (msg.role === "user") {
+          turns.push(`User: ${text}`);
+        } else if (msg.role === "assistant") {
+          turns.push(`Assistant: ${text}`);
+        }
+      }
+      prompt = turns.join("\n\n");
+    }
 
     if (stream) {
       res.writeHead(200, {
@@ -561,18 +720,36 @@ const server = createServer(async (req, res) => {
       try {
         const result = await invokeClaude({
           prompt,
-          systemPrompt: systemPrompt || undefined,
+          systemPrompt: isFollowUp ? undefined : (systemPrompt || undefined),
           outputFormat: "json",
           permissionMode: "bypassPermissions",
           disallowedTools: ENGIE_DISALLOWED_TOOLS,
-          noSessionPersistence: true,
           maxTurns: ENGIE_MAX_TURNS,
           addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
           timeoutMs: ENGIE_TIMEOUT_MS,
           mcpConfig: ENGIE_MCP_CONFIG,
+          resumeSession: isFollowUp ? existingSession.sessionId : undefined,
         });
 
+        // Store session for follow-up
+        if (result.session_id) {
+          setSession(sessionKey, result.session_id);
+        }
+
         const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
+
+        // Fire-and-forget: collect training pair for The Forge
+        getCollector().then((c) => {
+          if (c) {
+            c.collectPair({
+              prompt,
+              routedTo: "claude",
+              primaryResponse: text,
+              primaryDurationMs: result.duration_ms,
+            });
+          }
+        }).catch(() => {});
+
         const sseChunk = {
           id, object: "chat.completion.chunk", created,
           model: "claude-subscription",
@@ -589,6 +766,44 @@ const server = createServer(async (req, res) => {
         res.write("data: [DONE]\n\n");
         res.end();
       } catch (e) {
+        // If resume fails, retry without session (fresh start)
+        if (isFollowUp && e.message?.includes("session")) {
+          console.log(`  → Session resume failed, retrying fresh`);
+          sessionStore.delete(sessionKey);
+          try {
+            const MAX_CONTEXT_MESSAGES = 20;
+            const recentMessages = nonSystemMessages.slice(-MAX_CONTEXT_MESSAGES);
+            const turns = [];
+            for (const msg of recentMessages) {
+              const text = flattenContent(msg.content);
+              if (msg.role === "user") turns.push(`User: ${text}`);
+              else if (msg.role === "assistant") turns.push(`Assistant: ${text}`);
+            }
+            const freshPrompt = turns.join("\n\n");
+
+            const result = await invokeClaude({
+              prompt: freshPrompt,
+              systemPrompt: systemPrompt || undefined,
+              outputFormat: "json",
+              permissionMode: "bypassPermissions",
+              disallowedTools: ENGIE_DISALLOWED_TOOLS,
+              maxTurns: ENGIE_MAX_TURNS,
+              addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
+              timeoutMs: ENGIE_TIMEOUT_MS,
+              mcpConfig: ENGIE_MCP_CONFIG,
+            });
+            if (result.session_id) setSession(sessionKey, result.session_id);
+            const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
+            res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "claude-subscription", choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }] })}\n\n`);
+            res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "claude-subscription", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          } catch (retryErr) {
+            e = retryErr;
+          }
+        }
+
         const sseErr = {
           id, object: "chat.completion.chunk", created,
           model: "claude-subscription",
@@ -605,22 +820,40 @@ const server = createServer(async (req, res) => {
     try {
       const result = await invokeClaude({
         prompt,
-        systemPrompt: systemPrompt || undefined,
+        systemPrompt: isFollowUp ? undefined : (systemPrompt || undefined),
         outputFormat: "json",
         permissionMode: "bypassPermissions",
         disallowedTools: ENGIE_DISALLOWED_TOOLS,
-        noSessionPersistence: true,
         maxTurns: ENGIE_MAX_TURNS,
         addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
         timeoutMs: ENGIE_TIMEOUT_MS,
         mcpConfig: ENGIE_MCP_CONFIG,
+        resumeSession: isFollowUp ? existingSession.sessionId : undefined,
       });
 
+      // Store session for follow-up
+      if (result.session_id) {
+        setSession(sessionKey, result.session_id);
+      }
+
       const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
+
+      // Fire-and-forget: collect training pair for The Forge
+      getCollector().then((c) => {
+        if (c) {
+          c.collectPair({
+            prompt,
+            routedTo: "claude",
+            primaryResponse: text,
+            primaryDurationMs: result.duration_ms,
+          });
+        }
+      }).catch(() => {});
+
       return jsonResponse(res, 200, {
-        id: `chatcmpl-${randomUUID().slice(0, 8)}`,
+        id,
         object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
+        created,
         model: "claude-subscription",
         choices: [{
           index: 0,
@@ -630,6 +863,11 @@ const server = createServer(async (req, res) => {
         usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
       });
     } catch (e) {
+      // If resume fails, retry fresh
+      if (isFollowUp && e.message?.includes("session")) {
+        sessionStore.delete(sessionKey);
+        // Retry handled in next request naturally
+      }
       return jsonResponse(res, 500, { error: { message: e.message, type: "server_error" } });
     }
   }
@@ -653,6 +891,21 @@ const server = createServer(async (req, res) => {
     return jsonResponse(res, 200, { cancelled: true, jobId: body.jobId });
   }
 
+  // ── GET /v1/sessions ─────────────────────────────────────────────────────
+  // List active Claude Code sessions
+  if (url.pathname === "/v1/sessions" && req.method === "GET") {
+    const sessions = [];
+    for (const [key, entry] of sessionStore) {
+      sessions.push({
+        sessionKey: key,
+        sessionId: entry.sessionId,
+        lastActivity: entry.lastActivity,
+        idleMs: Date.now() - entry.lastActivity,
+      });
+    }
+    return jsonResponse(res, 200, { sessions });
+  }
+
   // ── 404 ──────────────────────────────────────────────────────────────────
   jsonResponse(res, 404, { error: "Not found" });
 });
@@ -666,10 +919,15 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  default model: ${DEFAULT_MODEL}`);
   console.log(`  workspace:     ${resolve(PROJECT_DIR, "workspace")}`);
   console.log("");
+  console.log(`  smart router:  ON (score threshold: dynamic)`);
+  console.log(`  sessions:      ON (TTL: ${SESSION_TTL_MS / 60000}min)`);
+  console.log("");
   console.log("Endpoints:");
-  console.log("  GET  /health         — check proxy + claude + online status");
-  console.log("  GET  /status         — active jobs and connectivity");
-  console.log("  POST /invoke         — run claude -p (blocking, returns JSON)");
-  console.log("  POST /invoke/stream  — run claude -p (streaming NDJSON)");
-  console.log("  POST /cancel         — kill a running job by jobId");
+  console.log("  GET  /health              — check proxy + claude + online status");
+  console.log("  GET  /status              — active jobs and connectivity");
+  console.log("  POST /invoke              — run claude -p (blocking, returns JSON)");
+  console.log("  POST /invoke/stream       — run claude -p (streaming NDJSON)");
+  console.log("  POST /v1/chat/completions — OpenAI-compat (smart routed + session-aware)");
+  console.log("  GET  /v1/sessions         — list active Claude Code sessions");
+  console.log("  POST /cancel              — kill a running job by jobId");
 });
