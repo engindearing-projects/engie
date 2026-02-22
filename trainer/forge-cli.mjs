@@ -30,6 +30,7 @@ const HELP = `
     data                Collection stats
     mine                Run expanded data miner (distillation pairs)
     mine-gt             Run ground-truth miner (real merged diffs)
+    mine-top            Mine top-starred GitHub repos (ground-truth)
     auto [start|stop]   Manage auto-trainer daemon
     rollback            Revert to previous model version
 
@@ -41,6 +42,7 @@ const HELP = `
     engie forge serve
     engie forge iterate --model hermes3:8b --max-iters 5
     engie forge mine-gt --sources MarekHealth,vercel --max-prs 5
+    engie forge mine-top --langs js,py,go --max-repos 20 --max-prs 3
     engie forge auto start
     engie forge compare "Write a fibonacci function in Python"
 `;
@@ -750,6 +752,23 @@ async function cmdMineGT(args) {
   });
 }
 
+async function cmdMineTop(args) {
+  console.log(chalk.bold("\n  The Forge — Top Repos Ground-Truth Miner\n"));
+  console.log(chalk.dim("  Mining merged PRs from top-starred GitHub repos...\n"));
+  const script = resolve(TRAINER_DIR, "mine-top-repos.mjs");
+  return new Promise((resolve, reject) => {
+    const child = spawn("bun", [script, ...args], {
+      cwd: TRAINER_DIR,
+      stdio: "inherit",
+    });
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Top repos miner exited with code ${code}`));
+    });
+    child.on("error", reject);
+  });
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 export async function run({ args = [] } = {}) {
@@ -783,6 +802,8 @@ export async function run({ args = [] } = {}) {
       return cmdMine(args.slice(1));
     case "mine-gt":
       return cmdMineGT(args.slice(1));
+    case "mine-top":
+      return cmdMineTop(args.slice(1));
     case "auto":
       return cmdAuto(args[1]);
     case "rollback":
