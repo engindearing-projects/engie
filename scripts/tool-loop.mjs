@@ -261,7 +261,7 @@ async function callOllama(messages, model) {
       raw: true,
       stream: false,
       options: {
-        num_predict: 4096,
+        num_predict: 8192,
         temperature: 0.7,
       },
     }),
