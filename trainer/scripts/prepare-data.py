@@ -118,17 +118,24 @@ def load_self_iterate_traces():
 
 
 def load_tool_traces():
-    """Load tool-use traces from Claude Code sessions.
+    """Load tool-use traces from agent loop and Claude Code sessions.
 
     These teach the model the agent loop: when to call tools, how to
     interpret results, and how to chain tool calls. The full multi-turn
     trace is preserved for agent training.
+
+    Loads both *-tools.jsonl (Claude Code) and *-agent.jsonl (engie-coder
+    tool loop) trace files with metadata types: tool_use, agent_loop.
     """
     examples = []
     if not TRACES_DIR.exists():
         return examples
 
-    for f in sorted(TRACES_DIR.glob("*-tools.jsonl")):
+    # Match both tool trace formats
+    trace_files = sorted(TRACES_DIR.glob("*-tools.jsonl")) + sorted(TRACES_DIR.glob("*-agent.jsonl"))
+    accepted_types = {"tool_use", "agent_loop"}
+
+    for f in trace_files:
         with open(f) as fh:
             for line in fh:
                 line = line.strip()
@@ -140,7 +147,7 @@ def load_tool_traces():
                     if len(trace) < 2:
                         continue
                     meta = record.get("metadata", {})
-                    if meta.get("type") != "tool_use":
+                    if meta.get("type") not in accepted_types:
                         continue
 
                     prompt = record.get("prompt", "")
