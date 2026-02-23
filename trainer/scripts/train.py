@@ -65,7 +65,7 @@ def main():
     parser.add_argument("--num-layers", type=int, default=16, help="LoRA layers (default: 16)")
     parser.add_argument("--lora-rank", type=int, default=16, help="LoRA rank (default: 16)")
     parser.add_argument("--lora-alpha", type=float, default=32, help="LoRA alpha (default: 32, typically 2x rank)")
-    parser.add_argument("--max-seq-length", type=int, default=8192, help="Max sequence length (default: 8192)")
+    parser.add_argument("--max-seq-length", type=int, default=4096, help="Max sequence length (default: 4096)")
     parser.add_argument("--no-mask-prompt", action="store_true", help="Disable prompt masking (default: mask enabled)")
     parser.add_argument("--no-resume", action="store_true", help="Don't resume from previous adapter (use for rank changes)")
     parser.add_argument("--version", type=int, default=None, help="Override version number")
@@ -146,28 +146,50 @@ def main():
         cmd.extend(["--resume-adapter-file", prev_adapter])
         print(f"  Resuming from: {prev_adapter}")
 
+    # Metal GPU memory guards — prevent SIGABRT from CompletionQueueDispatch
+    metal_env = os.environ.copy()
+    metal_env["MLX_METAL_PREALLOCATE"] = "0"
+    metal_env["MLX_METAL_MEMORY_BUDGET"] = str(6 * 1024 * 1024 * 1024)  # 6GB
+
     print(f"\nStarting training...")
+    print(f"  Metal guards: PREALLOCATE=0, MEMORY_BUDGET=6GB")
     start = time.time()
 
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(TRAINER_DIR),
-            check=True,
-            text=True,
-            capture_output=False,  # let output stream to terminal
-        )
-    except subprocess.CalledProcessError as e:
-        duration = time.time() - start
-        print(f"\nTraining FAILED after {duration:.1f}s")
-
-        # Record failure in forge DB
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
         try:
-            _record_run(version, train_count, valid_count, None, None, args.iters, duration, "failed")
-        except Exception:
-            pass
+            result = subprocess.run(
+                cmd,
+                cwd=str(TRAINER_DIR),
+                env=metal_env,
+                check=True,
+                text=True,
+                capture_output=False,  # let output stream to terminal
+            )
+            break  # success
+        except subprocess.CalledProcessError as e:
+            duration = time.time() - start
+            is_metal_crash = e.returncode < 0 or e.returncode == 134  # SIGABRT = 134
 
-        sys.exit(1)
+            if is_metal_crash and attempt < max_attempts:
+                print(f"\nMetal GPU crash detected (exit code {e.returncode}), retrying ({attempt}/{max_attempts})...")
+                print(f"  This usually means Metal ran out of GPU memory during eval.")
+                print(f"  Tip: try --max-seq-length 2048 if this keeps happening.")
+                time.sleep(3)
+                start = time.time()  # reset timer for retry
+                continue
+
+            print(f"\nTraining FAILED after {duration:.1f}s (exit code {e.returncode})")
+            if is_metal_crash:
+                print(f"  Metal GPU crash — try reducing --max-seq-length or --batch-size")
+
+            # Record failure in forge DB
+            try:
+                _record_run(version, train_count, valid_count, None, None, args.iters, duration, "failed")
+            except Exception:
+                pass
+
+            sys.exit(1)
 
     duration = time.time() - start
     print(f"\nTraining completed in {duration:.1f}s")
