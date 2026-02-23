@@ -33,6 +33,37 @@ const TOOL_CALL_CODE_RE = /```(?:json|bash|tool)?\s*\n?\s*(\{[\s\S]*?"name"\s*:[
 const TOOL_CALL_BARE_RE = /(?:^|\n)\s*(\{"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^}]*\}\s*\})/gm;
 
 /**
+ * Attempt to convert single-quoted JSON strings to double-quoted.
+ * Handles the common case where small models output Python-style strings.
+ * This is best-effort — won't handle all edge cases but catches the common pattern.
+ */
+function fixSingleQuotedJson(str) {
+  // State machine: walk through chars, swap unescaped single quotes to double quotes
+  // while handling already-existing double quotes inside single-quoted values
+  let result = "";
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    const prev = i > 0 ? str[i - 1] : "";
+    if (ch === "'" && !inDouble && prev !== "\\") {
+      // Swap single quote → double quote
+      result += '"';
+      inSingle = !inSingle;
+    } else if (ch === '"' && !inSingle && prev !== "\\") {
+      result += '"';
+      inDouble = !inDouble;
+    } else if (ch === '"' && inSingle && prev !== "\\") {
+      // Double quote inside single-quoted string → escape it
+      result += '\\"';
+    } else {
+      result += ch;
+    }
+  }
+  return result;
+}
+
+/**
  * Parse tool calls from model output text.
  * Handles multiple formats the model might use:
  * 1. <tool_call>{...}</tool_call> (preferred)
@@ -44,18 +75,23 @@ export function parseToolCalls(text) {
   let reasoning = text;
 
   function tryParse(jsonStr, fullMatch) {
-    try {
-      const parsed = JSON.parse(jsonStr.trim());
-      if (parsed.name && typeof parsed.name === "string") {
-        toolCalls.push({
-          name: parsed.name,
-          arguments: parsed.arguments || {},
-        });
-        reasoning = reasoning.replace(fullMatch, "").trim();
-        return true;
+    const trimmed = jsonStr.trim();
+    // Try strict JSON first, then attempt to fix single-quoted strings
+    // (common with small models that mix Python/JS style)
+    for (const candidate of [trimmed, fixSingleQuotedJson(trimmed)]) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed.name && typeof parsed.name === "string") {
+          toolCalls.push({
+            name: parsed.name,
+            arguments: parsed.arguments || {},
+          });
+          reasoning = reasoning.replace(fullMatch, "").trim();
+          return true;
+        }
+      } catch {
+        // Try next candidate
       }
-    } catch {
-      // Malformed JSON — skip
     }
     return false;
   }
@@ -80,6 +116,30 @@ export function parseToolCalls(text) {
     TOOL_CALL_BARE_RE.lastIndex = 0;
     while ((match = TOOL_CALL_BARE_RE.exec(text)) !== null) {
       tryParse(match[1], match[1]);
+    }
+  }
+
+  // Last resort: find any {"name":..."arguments":... structure (handles truncated
+  // code blocks where the closing ``` was cut off by token limit)
+  if (toolCalls.length === 0) {
+    const lastBrace = text.lastIndexOf('{"name"');
+    if (lastBrace !== -1) {
+      let candidate = text.slice(lastBrace);
+      // Try to balance braces — if truncated, close them
+      let depth = 0;
+      let end = 0;
+      for (let i = 0; i < candidate.length; i++) {
+        if (candidate[i] === "{") depth++;
+        else if (candidate[i] === "}") depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
+      if (end > 0) {
+        tryParse(candidate.slice(0, end), candidate.slice(0, end));
+      } else {
+        // Truncated — try closing unclosed braces
+        candidate += "}".repeat(depth);
+        tryParse(candidate, text.slice(lastBrace));
+      }
     }
   }
 
