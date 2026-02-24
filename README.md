@@ -377,6 +377,21 @@ Override with the `COZYTERM_HOME` environment variable (falls back to `ENGIE_HOM
 | `cozyterm.db` | `~/.cozyterm/memory/` | SQLite memory database |
 | `jobs.json` | `~/.cozyterm/cron/` | Scheduled job definitions |
 
+### openclaw.json Example (Safe Template)
+
+We provide a sanitized template at `config/openclaw.json.example`.
+
+Copy it to your local config:
+
+```bash
+cp config/openclaw.json.example ~/.openclaw/openclaw.json
+```
+
+Then fill in these fields:
+- `channels.telegram.botToken` — Telegram bot token
+- `gateway.auth.token` — OpenClaw gateway token
+- `channels.slack.*` — Slack settings if you use Slack (token/user ID)
+
 ---
 
 ## Guardrails
