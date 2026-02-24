@@ -23,6 +23,7 @@ const POLL_MS = parseInt(process.env.TG_BRIDGE_POLL_MS || "2000", 10);
 const TG_LONG_POLL = parseInt(process.env.TG_BRIDGE_LONG_POLL || "30", 10);
 const MAX_TG_TEXT = 3500; // keep under Telegram 4096 limit
 const OLLAMA_URL = process.env.OLLAMA_URL || process.env.OLLAMA_HOST || "http://localhost:11434";
+const ALLOW_ALL_CHATS = process.env.TG_BRIDGE_ALLOW_ALL === "1";
 
 const STATE_DIR = resolve(cozyHome(), "telegram");
 const STATE_PATH = resolve(STATE_DIR, "bridge-state.json");
@@ -203,10 +204,10 @@ function connectGateway() {
             minProtocol: 3,
             maxProtocol: 3,
             client: {
-              id: "telegram-bridge",
+              id: "openclaw-control-ui",
               version: "1.0.0",
               platform: "node",
-              mode: "bridge",
+              mode: "ui",
             },
             role: "operator",
             scopes: ["operator.admin", "operator.read", "operator.write", "operator.pairing", "chat"],
@@ -375,6 +376,7 @@ function saveState() {
 }
 
 function ensureChatAllowed(chatId) {
+  if (ALLOW_ALL_CHATS) return true;
   if (state.allowlist?.length) {
     return state.allowlist.includes(String(chatId));
   }
@@ -902,49 +904,60 @@ async function handleListSessions(chatId) {
 
 // ── Engie Chat Relay ──────────────────────────────────────────────────────
 
-function sessionKeyForChat(chatId) {
-  return `agent:engie:telegram-${chatId}`;
+function sessionKeyForChat() {
+  // Single unified session across all channels
+  return "agent:engie:main";
 }
 
 async function sendToEngie(chatId, message) {
   const sk = sessionKeyForChat(chatId);
 
-  const sendResult = await request("chat.send", {
-    sessionKey: sk,
-    message,
-    idempotencyKey: randomUUID(),
-  });
+  try {
+    const sendResult = await request("chat.send", {
+      sessionKey: sk,
+      message,
+      idempotencyKey: randomUUID(),
+    });
 
-  const runId = sendResult?.runId;
-  if (!runId) throw new Error("No runId returned from gateway");
+    const runId = sendResult?.runId;
+    if (!runId) throw new Error("No runId returned from gateway");
 
-  const finalEvent = await waitForEvent(
-    (msg) =>
-      msg.event === "chat" &&
-      msg.payload?.runId === runId &&
-      (msg.payload?.state === "final" || msg.payload?.state === "error"),
-    120000
-  );
+    const finalEvent = await waitForEvent(
+      (msg) =>
+        msg.event === "chat" &&
+        msg.payload?.runId === runId &&
+        (msg.payload?.state === "final" || msg.payload?.state === "error"),
+      120000
+    );
 
-  if (finalEvent.payload?.state === "error") {
-    const errMsg = finalEvent.payload?.error || finalEvent.payload?.message || "Unknown error";
-    throw new Error(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
-  }
+    if (finalEvent.payload?.state === "error") {
+      const errMsg = finalEvent.payload?.error || finalEvent.payload?.message || "Unknown error";
+      throw new Error(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
+    }
 
-  const history = await request("chat.history", { sessionKey: sk, limit: 5 });
-  const messages = history?.messages || [];
-  let responseText = "";
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role === "assistant") {
-      responseText = typeof m.text === "string" ? m.text : (Array.isArray(m.content)
-        ? m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n")
-        : "");
-      break;
+    const history = await request("chat.history", { sessionKey: sk, limit: 5 });
+    const messages = history?.messages || [];
+    let responseText = "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant") {
+        responseText = typeof m.text === "string" ? m.text : (Array.isArray(m.content)
+          ? m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n")
+          : "");
+        break;
+      }
+    }
+
+    return { text: responseText || "Engie responded, but no text was captured.", fallback: false };
+  } catch (e) {
+    // Fallback to local model if the gateway/Claude path fails.
+    try {
+      const text = await ollamaChat(message);
+      return { text, fallback: true, error: e.message };
+    } catch (e2) {
+      return { text: `Error: ${e.message}`, fallback: true };
     }
   }
-
-  return responseText || "Engie responded, but no text was captured.";
 }
 
 // ── Main Loop ─────────────────────────────────────────────────────────────
@@ -1027,11 +1040,11 @@ async function handleTelegramMessage(msg) {
     const forcedText = compareOnce[1].trim();
     const pre = await preprocessPrompt(chatId, forcedText);
     if (pre.action === "asked") return;
-    logActivity("telegram", "user", forcedText, sessionKeyForChat(chatId));
+    logActivity("telegram-bridge", "user", forcedText, sessionKeyForChat(chatId));
     const comparePromise = runComparisons(pre.prompt);
     const reply = await sendToEngie(chatId, pre.prompt);
-    await tgSend(chatId, reply);
-    logActivity("telegram", "assistant", reply, sessionKeyForChat(chatId));
+    await tgSend(chatId, reply.text);
+    logActivity("telegram-bridge", "assistant", reply.text, sessionKeyForChat(chatId));
 
     comparePromise.then((outputs) => {
       const payload = {
@@ -1044,7 +1057,7 @@ async function handleTelegramMessage(msg) {
         is_coding: isCodingPrompt(pre.prompt),
         is_hard: isHardPrompt(pre.prompt),
         compare_reason: "manual",
-        outputs: { ...outputs, engie_gateway: { text: reply } },
+        outputs: { ...outputs, engie_gateway: { text: reply.text, fallback: reply.fallback } },
       };
       logCompare(payload);
     }).catch((e) => console.error("compare error:", e.message));
@@ -1066,10 +1079,10 @@ async function handleTelegramMessage(msg) {
     ].join("\n");
     const pre = await preprocessPrompt(chatId, combined, { allowClarify: false });
     if (pre.action === "asked") return;
-    logActivity("telegram", "user", combined, sessionKeyForChat(chatId));
+    logActivity("telegram-bridge", "user", combined, sessionKeyForChat(chatId));
     const reply = await sendToEngie(chatId, pre.prompt);
-    await tgSend(chatId, reply);
-    logActivity("telegram", "assistant", reply, sessionKeyForChat(chatId));
+    await tgSend(chatId, reply.text);
+    logActivity("telegram-bridge", "assistant", reply.text, sessionKeyForChat(chatId));
     return;
   }
 
@@ -1088,7 +1101,7 @@ async function handleTelegramMessage(msg) {
   // Otherwise forward to Engie
   const pre = await preprocessPrompt(chatId, text);
   if (pre.action === "asked") return;
-  logActivity("telegram", "user", text, sessionKeyForChat(chatId));
+  logActivity("telegram-bridge", "user", text, sessionKeyForChat(chatId));
 
   const isCoding = isCodingPrompt(pre.prompt);
   const isHard = isHardPrompt(pre.prompt);
@@ -1100,8 +1113,8 @@ async function handleTelegramMessage(msg) {
   const comparePromise = shouldCompare ? runComparisons(pre.prompt) : null;
 
   const reply = await sendToEngie(chatId, pre.prompt);
-  await tgSend(chatId, reply);
-  logActivity("telegram", "assistant", reply, sessionKeyForChat(chatId));
+  await tgSend(chatId, reply.text);
+  logActivity("telegram-bridge", "assistant", reply.text, sessionKeyForChat(chatId));
 
   if (comparePromise) {
     comparePromise.then((outputs) => {
@@ -1115,7 +1128,7 @@ async function handleTelegramMessage(msg) {
         is_coding: isCoding,
         is_hard: isHard,
         compare_reason: compareReason,
-        outputs: { ...outputs, engie_gateway: { text: reply } },
+        outputs: { ...outputs, engie_gateway: { text: reply.text, fallback: reply.fallback } },
       };
       logCompare(payload);
     }).catch((e) => console.error("compare error:", e.message));
@@ -1139,7 +1152,7 @@ async function pollTelegram() {
       try {
         await handleTelegramMessage(update.message);
       } catch (e) {
-        console.error("handleTelegramMessage error:", e.message);
+        console.error("handleTelegramMessage error:", e?.stack || e?.message || String(e));
       }
     }
   }
@@ -1151,6 +1164,14 @@ async function main() {
   console.log(`Gateway: ${WS_URL}`);
   if (TELEGRAM_PLUGIN_ENABLED) {
     console.log("Warning: OpenClaw Telegram plugin appears enabled. This bridge should be the only Telegram consumer.");
+  }
+
+  // Ensure Telegram long-polling works by clearing any webhook
+  try {
+    await tgCall("setWebhook", { url: "" });
+    console.log("Telegram webhook cleared (using long-polling).");
+  } catch (e) {
+    console.error("Failed to clear Telegram webhook:", e.message);
   }
 
   // Poll loops

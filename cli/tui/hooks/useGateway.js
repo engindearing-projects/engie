@@ -5,7 +5,7 @@ import { extractSuggestions, stripSuggestions } from "../lib/extract-suggestions
 
 const ACTIVITY_URL = `http://localhost:${process.env.ACTIVITY_PORT || 18790}`;
 
-function logActivityQuiet(role, content, sessionKey = "agent:engie:cli") {
+function logActivityQuiet(role, content, sessionKey = "agent:engie:main") {
   fetch(`${ACTIVITY_URL}/activity`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -19,7 +19,7 @@ let msgCounter = 0;
 /**
  * Bridge: GatewayClient EventEmitter → React state.
  *
- * Returns { messages, streamText, busy, connected, error, sendMessage }
+ * Returns { messages, streamText, busy, connected, error, sendMessage, toolStage, lastMeta }
  *
  * - messages: completed message pairs [{id, role, text}]
  * - streamText: current in-progress assistant text (or "")
@@ -27,6 +27,8 @@ let msgCounter = 0;
  * - connected: gateway connection state
  * - error: last error message (or null)
  * - sendMessage(text): send a user message
+ * - toolStage: current tool name being executed (or null)
+ * - lastMeta: { model, durationMs } from last response (or null)
  */
 export function useGateway(gw, sessionKey, coachMode = false) {
   const [messages, setMessages] = useState([]);
@@ -35,10 +37,14 @@ export function useGateway(gw, sessionKey, coachMode = false) {
   const [connected, setConnected] = useState(gw?.connected ?? false);
   const [error, setError] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
+  const [toolStage, setToolStage] = useState(null);
+  const [toolEvents, setToolEvents] = useState([]);
+  const [lastMeta, setLastMeta] = useState(null);
 
   // Track accumulated text for delta diffing (same approach as repl.mjs)
   const accumulatedRef = useRef("");
   const lastUserMsgRef = useRef("");
+  const responseStartRef = useRef(null);
 
   // Subscribe to gateway events
   useEffect(() => {
@@ -57,6 +63,24 @@ export function useGateway(gw, sessionKey, coachMode = false) {
         if (data.phase === "error") {
           setError(data.message || "Agent error");
           setBusy(false);
+          setToolStage(null);
+        }
+        return;
+      }
+
+      // Tool events — extract tool name for context-aware spinner + file activity
+      if (stream === "tool" || data.tool || data.phase === "tool_start") {
+        const toolName = data.name || data.tool || data.toolName || "";
+        const filePath = data.input?.file_path || data.input?.path
+          || data.tool?.input?.file_path || data.tool?.input?.path || null;
+        const phase = data.phase || (toolName ? "tool_start" : "unknown");
+
+        if (toolName) {
+          setToolStage(toolName);
+          setToolEvents((prev) => [...prev, { toolName, filePath, timestamp: Date.now(), phase }]);
+        }
+        if (data.phase === "tool_end" || data.phase === "tool_complete") {
+          setToolStage(null);
         }
         return;
       }
@@ -66,6 +90,9 @@ export function useGateway(gw, sessionKey, coachMode = false) {
         const fullText = data.text || data.content || "";
         const delta = data.delta || "";
         if (!fullText && !delta) return;
+
+        // Clear tool stage when text starts flowing
+        setToolStage(null);
 
         // Compute new accumulated text (mirrors repl.mjs logic)
         let newAccumulated = accumulatedRef.current;
@@ -113,6 +140,13 @@ export function useGateway(gw, sessionKey, coachMode = false) {
           ]);
         }
 
+        // Extract response metadata (model + duration)
+        const model = payload.message?.model || payload.data?.model || null;
+        const durationMs = responseStartRef.current
+          ? Date.now() - responseStartRef.current
+          : null;
+        setLastMeta({ model, durationMs });
+
         // Fire-and-forget observation extraction
         const userText = lastUserMsgRef.current;
         if (userText && finalText) {
@@ -125,7 +159,9 @@ export function useGateway(gw, sessionKey, coachMode = false) {
         setStreamText("");
         accumulatedRef.current = "";
         setBusy(false);
+        setToolStage(null);
         setError(null);
+        responseStartRef.current = null;
       }
 
       if (payload.state === "error") {
@@ -133,13 +169,16 @@ export function useGateway(gw, sessionKey, coachMode = false) {
         setStreamText("");
         accumulatedRef.current = "";
         setBusy(false);
+        setToolStage(null);
+        responseStartRef.current = null;
       }
     }
 
     function onDisconnected() {
       setConnected(false);
-      setError("Lost connection to CozyTerm gateway");
+      setError("Lost connection to gateway");
       setBusy(false);
+      setToolStage(null);
     }
 
     function onError(err) {
@@ -168,7 +207,10 @@ export function useGateway(gw, sessionKey, coachMode = false) {
       accumulatedRef.current = "";
       setStreamText("");
       setSuggestions([]);
+      setToolStage(null);
+      setToolEvents([]);
       lastUserMsgRef.current = text;
+      responseStartRef.current = Date.now();
 
       // Add user message to history (show raw text, not context-injected)
       setMessages((prev) => [
@@ -192,10 +234,12 @@ export function useGateway(gw, sessionKey, coachMode = false) {
       } catch (err) {
         setError(err.message);
         setBusy(false);
+        setToolStage(null);
+        responseStartRef.current = null;
       }
     },
     [gw, sessionKey, busy]
   );
 
-  return { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions };
+  return { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions, toolStage, toolEvents, lastMeta };
 }

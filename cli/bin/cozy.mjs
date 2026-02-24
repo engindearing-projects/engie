@@ -14,7 +14,7 @@
 
 import chalk from "chalk";
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 const HELP = `
   ${chalk.bold("cozy")} v${VERSION} — AI project manager CLI (powered by Engie)
@@ -32,7 +32,7 @@ const HELP = `
                               Save an observation to memory
 
   ${chalk.cyan("Options:")}
-    -s, --session <key>   Session key (default: agent:engie:cli)
+    -s, --session <key>   Session key (default: agent:engie:main)
     --coach               Start with coaching mode enabled
     -h, --help            Show this help
     -v, --version         Show version
@@ -48,6 +48,7 @@ const HELP = `
     /coach                     Toggle coaching mode
     /explain [concept]         Friendly explanation
     /suggest                   Get next-step suggestions
+    /mobile                    Mobile access setup (Mosh/SSH)
 `;
 
 // Subcommands that map to command modules
@@ -67,7 +68,7 @@ async function main() {
   }
 
   // Extract --session / -s before routing
-  let sessionKey = "agent:engie:cli";
+  let sessionKey = "agent:engie:main";
   const sessionIdx = args.findIndex((a) => a === "--session" || a === "-s");
   if (sessionIdx !== -1) {
     sessionKey = args[sessionIdx + 1] || sessionKey;

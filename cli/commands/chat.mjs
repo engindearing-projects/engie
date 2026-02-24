@@ -12,7 +12,7 @@ import { injectContext } from "../lib/memory-context.js";
  * Run chat mode.
  * @param {{ oneshot: string|null, sessionKey: string }} opts
  */
-export async function run({ oneshot = null, sessionKey = "agent:engie:cli", coach = false } = {}) {
+export async function run({ oneshot = null, sessionKey = "agent:engie:main", coach = false } = {}) {
   const configPath = findConfig();
   if (!configPath) {
     console.error(chalk.red("Could not find openclaw.json config."));

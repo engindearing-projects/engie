@@ -94,7 +94,7 @@ export function generateOpenclawConfig({ token }) {
     ],
     sessions: {
       defaultAgent: "engie",
-      defaultKey: "agent:engie:cli",
+      defaultKey: "agent:engie:main",
       persistence: {
         enabled: true,
         dir: resolve(memoryDir(), "sessions"),

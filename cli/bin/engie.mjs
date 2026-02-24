@@ -14,7 +14,7 @@
 
 import chalk from "chalk";
 
-const VERSION = "0.3.0";
+const VERSION = "0.5.0";
 
 const HELP = `
   ${chalk.bold("engie")} v${VERSION} — AI project manager CLI
@@ -33,7 +33,7 @@ const HELP = `
     engie forge <cmd>         Training pipeline (status, train, eval, compare, data, rollback)
 
   ${chalk.cyan("Options:")}
-    -s, --session <key>   Session key (default: agent:engie:cli)
+    -s, --session <key>   Session key (default: agent:engie:main)
     -h, --help            Show this help
     -v, --version         Show version
 
@@ -64,7 +64,7 @@ async function main() {
   }
 
   // Extract --session / -s before routing
-  let sessionKey = "agent:engie:cli";
+  let sessionKey = "agent:engie:main";
   const sessionIdx = args.findIndex((a) => a === "--session" || a === "-s");
   if (sessionIdx !== -1) {
     sessionKey = args[sessionIdx + 1] || sessionKey;
