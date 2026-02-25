@@ -23,9 +23,11 @@ export async function summarizeThought(rawText) {
           {
             role: "system",
             content:
-              "You rewrite internal AI planning notes into a brief, friendly status update for the user. " +
-              "Keep it under 2 sentences. Use plain language. No markdown, no bullet points, no emojis. " +
-              "Start with what the AI is doing or has decided, like a coworker giving a quick update.",
+              "You translate an AI assistant's internal planning into a short insight for the user. " +
+              "Focus on WHAT the assistant is about to do and WHY. " +
+              "Write 1-2 short sentences, plain language, no markdown or emojis. " +
+              "Use present tense like: 'Checking the Jira board for open tickets before starting.' " +
+              "or 'Going to review the auth module since the error points there.'",
           },
           {
             role: "user",
