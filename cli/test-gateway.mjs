@@ -1,11 +1,13 @@
 import WebSocket from "ws";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const configPath = resolve(__dirname, "..", "config", "openclaw.json");
+const configPath = existsSync(resolve(__dirname, "..", "config", "cozyterm.json"))
+  ? resolve(__dirname, "..", "config", "cozyterm.json")
+  : resolve(__dirname, "..", "config", "openclaw.json");
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const GW_PORT = config.gateway?.port ?? 18789;
 const GW_TOKEN = config.gateway?.auth?.token;
@@ -24,7 +26,7 @@ ws.on("message", (raw) => {
       type: "req", id: nextId(), method: "connect",
       params: {
         minProtocol: 3, maxProtocol: 3,
-        client: { id: "openclaw-control-ui", version: "1.0.0", platform: "node", mode: "ui" },
+        client: { id: "cozyterm-ui", version: "1.0.0", platform: "node", mode: "ui" },
         role: "operator",
         scopes: ["operator.admin", "operator.read", "operator.write", "operator.pairing", "chat"],
         auth: { token: GW_TOKEN },

@@ -70,7 +70,7 @@ export class GatewayClient extends EventEmitter {
         type: "req", id, method: "connect",
         params: {
           minProtocol: 3, maxProtocol: 3,
-          client: { id: "openclaw-control-ui", version: "1.0.0", platform: "node", mode: "ui" },
+          client: { id: "cozyterm-ui", version: "1.0.0", platform: "node", mode: "ui" },
           role: "operator",
           scopes: ["operator.admin", "operator.read", "operator.write", "operator.pairing", "chat"],
           auth: { token: this.token },

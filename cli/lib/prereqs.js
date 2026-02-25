@@ -50,18 +50,21 @@ export function checkPlatform() {
 }
 
 /**
- * Check OpenClaw gateway binary.
+ * Check gateway health via HTTP.
  */
-export function checkOpenClaw() {
-  const output = tryExec("openclaw --version");
-  let version = null;
-  if (output) {
-    // May return something like "openclaw 2026.2.17" or just a version string
-    const match = output.match(/(\d+\.\d+[\.\d]*)/);
-    version = match ? match[1] : output;
+export function checkGateway() {
+  // Try HTTP health check instead of binary check
+  try {
+    const output = tryExec("curl -s -o /dev/null -w '%{http_code}' http://localhost:18789/health");
+    const healthy = output === "200";
+    return { name: "Gateway", installed: healthy, version: healthy ? "0.5.0" : null };
+  } catch {
+    return { name: "Gateway", installed: false, version: null };
   }
-  return { name: "OpenClaw", installed: output !== null, version };
 }
+
+/** @deprecated Use checkGateway() */
+export const checkOpenClaw = checkGateway;
 
 /**
  * Check Claude Code CLI.
@@ -98,7 +101,7 @@ export function runAllChecks() {
     platform: checkPlatform(),
     bun: checkBun(),
     brew: checkBrew(),
-    openclaw: checkOpenClaw(),
+    gateway: checkGateway(),
     claude: checkClaude(),
     ollama: checkOllama(),
   };

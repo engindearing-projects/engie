@@ -19,6 +19,7 @@ const HELP_TEXT = [
   "  /coach             Toggle coaching mode",
   "  /explain [concept] Get a friendly explanation",
   "  /suggest           Get next-step suggestions",
+  "  /mobile            Show mobile access setup",
   "  /quit              Exit (/exit, /q also work)",
 ].join("\n");
 
@@ -248,6 +249,30 @@ export function useSlashCommands({ gateway, app, setMessages, setStreamText, sen
             sysMsg(`Forge error: ${err.message}`),
           ]);
         }
+        return true;
+      }
+
+      // /mobile — show mobile access instructions
+      if (lower === "/mobile") {
+        const hostname = require("os").hostname();
+        const mobileText = [
+          "Mobile access via Mosh/SSH:",
+          "",
+          "1. Start a tmux session on this Mac:",
+          `   bash ~/engie/scripts/start-tui-session.sh`,
+          "",
+          "2. From iPhone (Blink Shell or similar):",
+          `   mosh ${hostname} -- tmux attach -t cozyterm`,
+          "",
+          "3. Or via plain SSH:",
+          `   ssh ${hostname} -t 'tmux attach -t cozyterm'`,
+          "",
+          "Tips:",
+          "  - Mosh handles spotty connections better than SSH",
+          "  - Blink Shell (iOS) has native Mosh support",
+          "  - The tmux session persists even if you disconnect",
+        ].join("\n");
+        setMessages((prev) => [...prev, sysMsg(mobileText)]);
         return true;
       }
 

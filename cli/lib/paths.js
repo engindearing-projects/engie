@@ -64,10 +64,16 @@ export function ensureDirs() {
   }
 }
 
-/** OpenClaw config file path */
-export function openclawConfigPath() {
+/** Gateway config file path */
+export function configPath() {
+  // Prefer cozyterm.json, fall back to openclaw.json
+  const cozy = join(configDir(), "cozyterm.json");
+  if (existsSync(cozy)) return cozy;
   return join(configDir(), "openclaw.json");
 }
+
+/** @deprecated Use configPath() */
+export const openclawConfigPath = configPath;
 
 /** Env file path */
 export function envFilePath() {
@@ -106,11 +112,14 @@ export function findConfig() {
   if (envPath && existsSync(envPath)) return envPath;
 
   const candidates = [
-    openclawConfigPath(),
+    join(configDir(), "cozyterm.json"),
+    join(configDir(), "openclaw.json"),
+    resolve(HOME, ".engie/config/cozyterm.json"),
     resolve(HOME, ".engie/config/openclaw.json"),
     resolve(HOME, ".openclaw/openclaw.json"),
+    resolve(HOME, "engie/config/cozyterm.json"),
     resolve(HOME, "engie/config/openclaw.json"),
-    "/etc/cozyterm/openclaw.json",
+    "/etc/cozyterm/cozyterm.json",
   ];
 
   for (const p of candidates) {
@@ -154,7 +163,7 @@ export function configPaths() {
     cron: cronDir(),
     logs: logsDir(),
     profile: profileDir(),
-    openclawConfig: openclawConfigPath(),
+    gatewayConfig: configPath(),
     envFile: envFilePath(),
     mcpTools: mcpToolsPath(),
     memoryDb: memoryDbPath(),

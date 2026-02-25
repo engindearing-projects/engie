@@ -36,6 +36,8 @@ const DEFAULT_SOURCES = [
   { name: "MarekHealth", maxRepos: 20, maxPRs: 8 },
   { name: "jfuginay", maxRepos: 15, maxPRs: 6 },
   { name: "engindearing-projects", maxRepos: 10, maxPRs: 6 },
+  // BloomTech — massive student project org, tons of merged PRs
+  { name: "BloomTech-Labs", maxRepos: 200, maxPRs: 10 },
   // High-quality open source
   { name: "vercel", maxRepos: 8, maxPRs: 5 },
   { name: "expressjs", maxRepos: 6, maxPRs: 5 },
@@ -338,9 +340,9 @@ async function collectGroundTruthPair(prompt, realDiff, source, metadata = {}) {
 async function mineMergedPRs(orgName, repoName, maxPRs) {
   console.log(`\n  Mining merged PRs from ${orgName}/${repoName}...`);
 
-  // Get recently merged PRs
+  // Get recently merged PRs — include baseRefName to filter for main/master/dev
   const prJson = gh(
-    `pr list --repo ${orgName}/${repoName} --state merged --limit ${maxPRs * 2} --json number,title,body,author,mergedAt,additions,deletions`
+    `pr list --repo ${orgName}/${repoName} --state merged --limit ${maxPRs * 3} --json number,title,body,author,mergedAt,additions,deletions,baseRefName`
   );
   if (!prJson) {
     console.log(`    No merged PRs found`);
@@ -355,13 +357,21 @@ async function mineMergedPRs(orgName, repoName, maxPRs) {
   }
 
   let collected = 0;
+  let skippedBranch = 0;
 
   for (const pr of prs) {
     if (collected >= maxPRs) break;
 
+    // STRICT: Only PRs merged into main/master/dev (not feature→feature)
+    const base = (pr.baseRefName || "").toLowerCase();
+    if (base && !["main", "master", "dev", "develop", "production"].includes(base)) {
+      skippedBranch++;
+      continue;
+    }
+
     // Skip trivial PRs
     if (!pr.title || pr.title.length < 15) continue;
-    if (/^bump|^update deps|^chore\(deps\)|^dependabot|^renovate/i.test(pr.title)) continue;
+    if (/^bump|^update deps|^chore\(deps\)|^dependabot|^renovate|^\[bot\]|^merge branch/i.test(pr.title)) continue;
     if ((pr.additions || 0) + (pr.deletions || 0) < 10) continue;
     if ((pr.additions || 0) + (pr.deletions || 0) > 2000) continue; // too big
 
@@ -385,17 +395,21 @@ async function mineMergedPRs(orgName, repoName, maxPRs) {
     await sleep(DELAY_MS);
   }
 
+  if (skippedBranch > 0) console.log(`    (skipped ${skippedBranch} PRs not targeting main/master/dev)`);
   return collected;
 }
 
 // ── Mine Commits with Diffs ─────────────────────────────────────────────────
+// STRICT: Only mine merge commits (PRs merged into default branch).
+// Skip raw commits — they're often WIP saves, progress pushes, or incomplete work.
 
 async function mineCommits(orgName, repoName, maxCommits = 5) {
-  console.log(`  Mining commits from ${orgName}/${repoName}...`);
+  console.log(`  Mining merge commits from ${orgName}/${repoName}...`);
 
-  // Get recent commit SHAs with messages
+  // Get merge commits only (2 parents = merge commit from a PR)
+  // This filters out direct pushes, WIP saves, and progress commits
   const commitData = gh(
-    `api repos/${orgName}/${repoName}/commits?per_page=${maxCommits * 2} --jq '.[] | .sha + "|||" + .commit.message + "|||" + (.files // [] | map(.filename) | join(","))'`
+    `api repos/${orgName}/${repoName}/commits?per_page=${maxCommits * 4} --jq '[.[] | select(.parents | length == 2)] | .[:${maxCommits * 2}] | .[] | .sha + "|||" + .commit.message + "|||" + (.files // [] | map(.filename) | join(","))'`
   );
   if (!commitData) return 0;
 
@@ -410,9 +424,15 @@ async function mineCommits(orgName, repoName, maxCommits = 5) {
     const fullMsg = parts[1] || "";
     const filesStr = parts[2] || "";
 
-    const message = fullMsg.split("\n")[0]; // first line only
+    // Extract the actual PR title from merge commit message
+    // Format: "Merge pull request #123 from user/branch\n\nActual title"
+    // or: "Title (#123)"
+    let message = fullMsg.split("\n")[0]; // first line
+    const prMergeMatch = fullMsg.match(/Merge pull request #\d+.*?\n\n(.+)/s);
+    if (prMergeMatch) message = prMergeMatch[1].split("\n")[0];
+
     if (!message || message.length < 15) continue;
-    if (/^merge|^bump|^update deps|^chore\(deps\)|^Merge pull request/i.test(message)) continue;
+    if (/^bump|^update deps|^chore\(deps\)|^dependabot|^renovate|^\[bot\]/i.test(message)) continue;
 
     // Get the commit diff
     const diff = gh(`api repos/${orgName}/${repoName}/commits/${sha} --jq '.files | map("--- " + .filename + "\\n" + (.patch // "")) | join("\\n\\n")'`);

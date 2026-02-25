@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start OpenClaw gateway with env vars from config/.env
+# Start CozyTerm gateway with env vars from config/.env
 # All paths are resolved relative to $HOME — no hardcoded user paths.
 
 COZYTERM_HOME="${COZYTERM_HOME:-${ENGIE_HOME:-$HOME/.cozyterm}}"
@@ -19,4 +19,8 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-exec /opt/homebrew/bin/openclaw gateway --bind lan --port 18789
+# Resolve the script directory to find gateway.mjs
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENGIE_DIR="${SCRIPT_DIR%/scripts}"
+
+exec /opt/homebrew/bin/bun "$ENGIE_DIR/scripts/gateway.mjs"

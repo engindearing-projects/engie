@@ -15,14 +15,14 @@ import {
   engieHome,
   ensureDirs,
   ensureOpenclawSymlink,
-  openclawConfigPath,
+  configPath as openclawConfigPath,
   envFilePath,
   mcpToolsPath,
   initStatePath,
 } from "../lib/paths.js";
 import {
   runAllChecks,
-  checkOpenClaw,
+  checkGateway as checkOpenClaw,
   checkOllama,
   checkClaude,
 } from "../lib/prereqs.js";
@@ -33,7 +33,7 @@ import {
   checkServiceHealth,
 } from "../lib/services.js";
 import {
-  generateOpenclawConfig,
+  generateGatewayConfig,
   generateEnvFile,
   generateMcpToolsConfig,
   generateGatewayToken,
@@ -409,7 +409,7 @@ export function WizardApp() {
         const token = dataRef.current.gatewayToken;
 
         // openclaw.json
-        const ocConfig = generateOpenclawConfig({ token });
+        const ocConfig = generateGatewayConfig({ token });
         writeFileSync(openclawConfigPath(), JSON.stringify(ocConfig, null, 2) + "\n", "utf-8");
 
         // .env

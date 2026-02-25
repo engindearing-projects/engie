@@ -22,7 +22,7 @@ if (!existsSync(RAW_DIR)) mkdirSync(RAW_DIR, { recursive: true });
 const SOURCES = [
   { name: "jfuginay", maxRepos: 20, maxItems: 6 },
   { name: "engindearing-projects", maxRepos: 20, maxItems: 6 },
-  { name: "BloomTech-Labs", maxRepos: 15, maxItems: 5 },
+  { name: "BloomTech-Labs", maxRepos: 200, maxItems: 15 },
 ];
 
 const DELAY_MS = 2000;

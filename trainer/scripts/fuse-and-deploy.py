@@ -23,8 +23,8 @@ TRAINER_DIR = Path(__file__).resolve().parent.parent
 
 # Set from domain config in main()
 DOMAIN = None
-BASE_MODEL = TRAINER_DIR / "models" / "base" / "Qwen2.5-Coder-7B-Instruct-4bit"
-ADAPTERS_DIR = TRAINER_DIR / "models" / "adapters"
+BASE_MODEL = None
+ADAPTERS_DIR = None
 FUSED_DIR = TRAINER_DIR / "models" / "fused"
 GGUF_DIR = TRAINER_DIR / "models" / "gguf"
 PYTHON = sys.executable
@@ -34,12 +34,12 @@ CONVERT_SCRIPT = TRAINER_DIR / "tools" / "llama.cpp" / "convert_hf_to_gguf.py"
 LLAMA_QUANTIZE = shutil.which("llama-quantize") or "/opt/homebrew/bin/llama-quantize"
 
 
-def get_latest_version():
+def get_latest_version(adapters_dir):
     """Find the latest adapter version."""
-    if not ADAPTERS_DIR.exists():
+    if not adapters_dir.exists():
         return None
     versions = []
-    for d in ADAPTERS_DIR.iterdir():
+    for d in adapters_dir.iterdir():
         if d.is_dir() and d.name.startswith("v"):
             try:
                 versions.append(int(d.name[1:]))
@@ -51,7 +51,7 @@ def get_latest_version():
 
 
 def main():
-    global DOMAIN, BASE_MODEL
+    global DOMAIN, BASE_MODEL, ADAPTERS_DIR
 
     parser = argparse.ArgumentParser(description="Fuse LoRA adapter and deploy to Ollama")
     parser.add_argument("--version", default=None, help="Version to fuse (default: latest)")
@@ -67,11 +67,19 @@ def main():
     else:
         DOMAIN = get_active_domain()
 
+    domain_id = DOMAIN["id"]
+
     # Set base model from domain config
     base_model_name = DOMAIN.get("base_model", "Qwen2.5-Coder-7B-Instruct-4bit")
     BASE_MODEL = TRAINER_DIR / "models" / "base" / base_model_name
 
-    version = args.version or get_latest_version()
+    # Domain-specific adapter paths
+    if domain_id == "coding":
+        ADAPTERS_DIR = TRAINER_DIR / "models" / "adapters"
+    else:
+        ADAPTERS_DIR = TRAINER_DIR / "models" / "adapters" / domain_id
+
+    version = args.version or get_latest_version(ADAPTERS_DIR)
     if not version:
         print("No adapter versions found. Run training first.")
         sys.exit(1)
@@ -278,7 +286,8 @@ def _update_db(version, ollama_tag, gguf_path):
     except Exception:
         pass
 
-    print(f"\n  Deployment complete! engie-coder:{version} is now active.")
+    model_prefix = DOMAIN.get("model_prefix", "engie-coder")
+    print(f"\n  Deployment complete! {model_prefix}:{version} is now active.")
 
 
 if __name__ == "__main__":

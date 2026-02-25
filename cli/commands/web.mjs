@@ -15,7 +15,7 @@ const DEFAULT_WEB_PORT = "5173";
 function readToken() {
   try {
     const env = readFileSync(ENV_PATH, "utf-8");
-    const match = env.match(/^OPENCLAW_GATEWAY_TOKEN=(.+)$/m);
+    const match = env.match(/^(?:COZYTERM|OPENCLAW)_GATEWAY_TOKEN=(.+)$/m);
     return match ? match[1].trim() : null;
   } catch {
     return null;
@@ -27,7 +27,7 @@ export async function run({ args = [] } = {}) {
   const token = readToken();
 
   if (!token) {
-    console.error(chalk.red("Could not read OPENCLAW_GATEWAY_TOKEN from config/.env"));
+    console.error(chalk.red("Could not read gateway token from config/.env"));
     console.log(chalk.gray(`Expected at: ${ENV_PATH}`));
     process.exit(1);
   }

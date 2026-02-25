@@ -29,15 +29,15 @@ if (!existsSync(RAW_DIR)) mkdirSync(RAW_DIR, { recursive: true });
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const LANGUAGE_COUNTS = {
-  javascript: 15,
-  typescript: 15,
-  python: 15,
+  javascript: 1000,
+  typescript: 1000,
+  python: 1000,
+  java: 1000,
+  rust: 1000,
+  c: 1000,
+  cpp: 1000,
   go: 15,
-  rust: 10,
-  java: 10,
   ruby: 10,
-  c: 10,
-  cpp: 10,
 };
 
 // Short aliases for CLI --langs flag
@@ -378,46 +378,52 @@ async function discoverTopRepos(languages, maxReposTotal) {
   for (const [lang, count] of Object.entries(langCounts)) {
     console.log(`    Searching ${lang} (top ${count})...`);
 
-    const result = gh(
-      `api search/repositories -X GET -f q="stars:>10000 language:${lang}" -f sort=stars -f per_page=${count + 10} --jq '.items[] | .full_name + "|||" + (.description // "") + "|||" + (.stargazers_count | tostring) + "|||" + (.language // "")'`
-    );
-
-    if (!result) {
-      console.log(`      No results for ${lang}`);
-      await sleep(SEARCH_DELAY_MS);
-      continue;
-    }
-
     let added = 0;
-    for (const line of result.split("\n")) {
-      if (!line.trim() || added >= count) continue;
-      const parts = line.split("|||");
-      const fullName = parts[0];
-      const description = parts[1] || "";
-      const stars = parseInt(parts[2]) || 0;
-      const repoLang = parts[3] || lang;
-      const repoName = fullName.split("/")[1] || fullName;
+    const pages = Math.ceil(count / 100);
 
-      // Filter out docs/list repos
-      if (isDocsRepo(repoName)) {
-        console.log(`      Skip (docs/list): ${fullName}`);
-        continue;
+    for (let page = 1; page <= pages && added < count; page++) {
+      // GitHub search API returns max 1000 results (10 pages of 100)
+      if (page > 10) break;
+      const result = gh(
+        `api search/repositories -X GET -f q="stars:>500 language:${lang}" -f sort=stars -f per_page=100 -f page=${page} --jq '.items[] | .full_name + "|||" + (.description // "") + "|||" + (.stargazers_count | tostring) + "|||" + (.language // "")'`
+      );
+
+      if (!result) {
+        if (page === 1) console.log(`      No results for ${lang}`);
+        break;
       }
 
-      // Dedup across languages
-      if (allRepos.some((r) => r.full_name === fullName)) continue;
+      for (const line of result.split("\n")) {
+        if (!line.trim() || added >= count) continue;
+        const parts = line.split("|||");
+        const fullName = parts[0];
+        const description = parts[1] || "";
+        const stars = parseInt(parts[2]) || 0;
+        const repoLang = parts[3] || lang;
+        const repoName = fullName.split("/")[1] || fullName;
 
-      allRepos.push({
-        full_name: fullName,
-        description: description.slice(0, 200),
-        stars,
-        language: repoLang.toLowerCase(),
-      });
-      added++;
+        // Filter out docs/list repos
+        if (isDocsRepo(repoName)) {
+          console.log(`      Skip (docs/list): ${fullName}`);
+          continue;
+        }
+
+        // Dedup across languages
+        if (allRepos.some((r) => r.full_name === fullName)) continue;
+
+        allRepos.push({
+          full_name: fullName,
+          description: description.slice(0, 200),
+          stars,
+          language: repoLang.toLowerCase(),
+        });
+        added++;
+      }
+
+      await sleep(SEARCH_DELAY_MS);
     }
 
     console.log(`      Found ${added} repos for ${lang}`);
-    await sleep(SEARCH_DELAY_MS);
   }
 
   // Sort by stars descending
@@ -457,9 +463,9 @@ async function mineRepo(repo, maxPRs, progress) {
   console.log(`  REPO: ${full_name} (${language}, ${repo.stars.toLocaleString()} stars)`);
   console.log(`${"─".repeat(50)}`);
 
-  // Get recently merged PRs (fetch extra to account for filtering)
+  // Get recently merged PRs — include baseRefName to filter for main/master/dev
   const prJson = gh(
-    `pr list --repo ${full_name} --state merged --limit ${maxPRs * 3} --json number,title,body,author,mergedAt,additions,deletions`
+    `pr list --repo ${full_name} --state merged --limit ${maxPRs * 4} --json number,title,body,author,mergedAt,additions,deletions,baseRefName`
   );
   if (!prJson) {
     console.log(`    No merged PRs found`);
@@ -474,6 +480,7 @@ async function mineRepo(repo, maxPRs, progress) {
   }
 
   let collected = 0;
+  let skippedBranch = 0;
 
   for (const pr of prs) {
     if (collected >= maxPRs) break;
@@ -482,11 +489,18 @@ async function mineRepo(repo, maxPRs, progress) {
     const key = progressKey(full_name, pr.number);
     if (progress[key]) continue;
 
+    // STRICT: Only PRs merged into main/master/dev (not feature→feature)
+    const base = (pr.baseRefName || "").toLowerCase();
+    if (base && !["main", "master", "dev", "develop", "production"].includes(base)) {
+      skippedBranch++;
+      continue;
+    }
+
     // Filter: title too short
     if (!pr.title || pr.title.length < 15) continue;
 
     // Filter: dependency bumps, chores
-    if (/^bump|^update deps|^chore\(deps\)|^dependabot|^renovate|^\[bot\]/i.test(pr.title)) continue;
+    if (/^bump|^update deps|^chore\(deps\)|^dependabot|^renovate|^\[bot\]|^merge branch/i.test(pr.title)) continue;
 
     // Filter: too small or too large (lines changed)
     const linesChanged = (pr.additions || 0) + (pr.deletions || 0);
@@ -516,6 +530,7 @@ async function mineRepo(repo, maxPRs, progress) {
     await sleep(DELAY_MS);
   }
 
+  if (skippedBranch > 0) console.log(`    (skipped ${skippedBranch} PRs not targeting main/master/dev)`);
   // Save progress after each repo (crash-safe)
   saveProgress(progress);
   return collected;

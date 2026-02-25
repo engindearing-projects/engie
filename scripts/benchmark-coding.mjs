@@ -2,7 +2,7 @@
 // Simple coding challenge benchmark: engie-coder vs claude vs codex
 
 import { spawnSync } from "child_process";
-import { readFileSync, unlinkSync, mkdirSync, writeFileSync } from "fs";
+import { readFileSync, unlinkSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -100,29 +100,149 @@ const TASKS = [
   },
 ];
 
+const REPO_TASKS = [
+  {
+    id: "refactor-rename",
+    description: "Rename sum -> add across multiple files",
+    setup(dir) {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      mkdirSync(join(dir, "test"), { recursive: true });
+      writeFileSync(join(dir, "src", "math.js"), "export function sum(a, b) { return a + b; }\n");
+      writeFileSync(
+        join(dir, "src", "index.js"),
+        "import { sum } from './math.js';\nexport function total(nums) { return nums.reduce((acc, n) => sum(acc, n), 0); }\n"
+      );
+      writeFileSync(
+        join(dir, "test", "test.js"),
+        "import { total } from '../src/index.js';\nif (total([1,2,3]) !== 6) throw new Error('total failed');\nconsole.log('ok');\n"
+      );
+      return {
+        prompt:
+          "You are given a small JS project. Rename function `sum` to `add` and update all imports/usages. " +
+          "Return a unified diff only (no commentary).",
+      };
+    },
+    testCmd: ["node", "test/test.js"],
+  },
+  {
+    id: "bugfix-divide-by-zero",
+    description: "Fix divide by zero to throw error",
+    setup(dir) {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      mkdirSync(join(dir, "test"), { recursive: true });
+      writeFileSync(
+        join(dir, "src", "calc.js"),
+        "export function divide(a, b) { return a / b; }\n"
+      );
+      writeFileSync(
+        join(dir, "test", "test.js"),
+        "import { divide } from '../src/calc.js';\n" +
+        "let threw = false;\n" +
+        "try { divide(4, 0); } catch (e) { threw = e.message === 'Division by zero'; }\n" +
+        "if (!threw) throw new Error('did not throw');\n" +
+        "if (divide(6, 2) !== 3) throw new Error('divide failed');\n" +
+        "console.log('ok');\n"
+      );
+      return {
+        prompt:
+          "Fix the bug so divide(a,b) throws Error('Division by zero') when b is 0. " +
+          "Return a unified diff only (no commentary).",
+      };
+    },
+    testCmd: ["node", "test/test.js"],
+  },
+  {
+    id: "performance-has-duplicates",
+    description: "Optimize hasDuplicates to avoid O(n^2)",
+    setup(dir) {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      mkdirSync(join(dir, "test"), { recursive: true });
+      writeFileSync(
+        join(dir, "src", "unique.js"),
+        "export function hasDuplicates(arr) {\n" +
+        "  for (let i = 0; i < arr.length; i++) {\n" +
+        "    for (let j = i + 1; j < arr.length; j++) {\n" +
+        "      if (arr[i] === arr[j]) return true;\n" +
+        "    }\n" +
+        "  }\n" +
+        "  return false;\n" +
+        "}\n"
+      );
+      writeFileSync(
+        join(dir, "test", "test.js"),
+        "import { hasDuplicates } from '../src/unique.js';\n" +
+        "const arr = Array.from({length: 20000}, (_, i) => i);\n" +
+        "const t0 = Date.now();\n" +
+        "const res = hasDuplicates(arr);\n" +
+        "const dt = Date.now() - t0;\n" +
+        "if (res !== false) throw new Error('incorrect result');\n" +
+        "if (dt > 200) throw new Error('too slow: ' + dt + 'ms');\n" +
+        "console.log('ok');\n"
+      );
+      return {
+        prompt:
+          "Optimize hasDuplicates(arr) to be near O(n). It must pass the performance test. " +
+          "Return a unified diff only (no commentary).",
+      };
+    },
+    testCmd: ["node", "test/test.js"],
+  },
+];
+
 function commandExists(cmd) {
   const res = spawnSync("/usr/bin/which", [cmd], { encoding: "utf8" });
   return res.status === 0;
 }
 
 async function ollamaChat(prompt) {
-  const res = await fetch(`${OLLAMA_URL}/v1/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: ENGIE_MODEL,
-      messages: [
-        { role: "system", content: "Return only the JavaScript function." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 800,
-    }),
-    signal: AbortSignal.timeout(120000),
+  const payload = JSON.stringify({
+    model: ENGIE_MODEL,
+    messages: [
+      { role: "system", content: "Return only the JavaScript function." },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 800,
   });
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return String(data.choices?.[0]?.message?.content || "");
+
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = spawnSync(
+      "/usr/bin/curl",
+      [
+        "-s",
+        "-X",
+        "POST",
+        `${OLLAMA_URL}/v1/chat/completions`,
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        payload,
+      ],
+      { encoding: "utf8", timeout: 120000 }
+    );
+    if (res.status === 0 && res.stdout) {
+      try {
+        const data = JSON.parse(res.stdout);
+        return String(data.choices?.[0]?.message?.content || "");
+      } catch (e) {
+        lastErr = e;
+      }
+    } else {
+      lastErr = new Error(res.stderr || res.stdout || `curl failed (status ${res.status})`);
+    }
+    await new Promise((r) => setTimeout(r, 1000 * attempt));
+  }
+  throw lastErr;
+}
+
+async function engieRun(prompt) {
+  try {
+    const text = await ollamaChat(prompt);
+    return { text };
+  } catch (e) {
+    return { error: e.message };
+  }
 }
 
 function claudeRun(prompt) {
@@ -287,6 +407,51 @@ function runTests(fnSource, task) {
   }
 }
 
+function extractDiff(text) {
+  if (!text) return "";
+  const fence = text.match(/```diff\s*([\s\S]*?)```/i);
+  if (fence) return fence[1].trim();
+  const diffMatch = text.match(/(diff --git[\s\S]*)/);
+  if (diffMatch) return diffMatch[1].trim();
+  return text.trim();
+}
+
+function runCmd(cmd, cwd) {
+  const res = spawnSync(cmd[0], cmd.slice(1), { encoding: "utf8", cwd });
+  return { ok: res.status === 0, stdout: res.stdout, stderr: res.stderr };
+}
+
+async function runRepoTask(task, modelRun) {
+  const dir = mkdtempSync("/tmp/engie-bench-repo-");
+  const { prompt } = task.setup(dir);
+  const res = await modelRun(prompt + "\n\nOutput ONLY a unified diff.");
+  if (res.error) {
+    rmSync(dir, { recursive: true, force: true });
+    return { ok: false, error: res.error };
+  }
+
+  const diff = extractDiff(res.text);
+  if (!diff) {
+    rmSync(dir, { recursive: true, force: true });
+    return { ok: false, error: "No diff returned" };
+  }
+
+  // Init git so we can apply patch cleanly
+  runCmd(["git", "init"], dir);
+  const applyRes = spawnSync("git", ["apply", "-"], { cwd: dir, encoding: "utf8", input: diff });
+  if (applyRes.status !== 0) {
+    rmSync(dir, { recursive: true, force: true });
+    return { ok: false, error: applyRes.stderr || applyRes.stdout || "git apply failed" };
+  }
+
+  const testRes = runCmd(task.testCmd, dir);
+  rmSync(dir, { recursive: true, force: true });
+  if (!testRes.ok) {
+    return { ok: false, error: testRes.stderr || testRes.stdout || "tests failed" };
+  }
+  return { ok: true };
+}
+
 function taskMeta(task) {
   if (task.id === "palindrome") return { fnName: "isPalindrome" };
   if (task.id === "two-sum") return { fnName: "twoSum" };
@@ -335,9 +500,23 @@ async function main() {
     });
   }
 
+  const repoResults = [];
+  for (const task of REPO_TASKS) {
+    const engie = await runRepoTask(task, engieRun);
+    const claude = await runRepoTask(task, claudeRun);
+    const codex = await runRepoTask(task, codexRun);
+    repoResults.push({ task: task.id, engie, claude, codex });
+  }
+
   console.log("Benchmark Results:");
   for (const r of results) {
     const fmt = (x) => (x.ok ? `${x.pass}/${x.total}` : `FAIL (${x.error || "tests failed"})`);
+    console.log(`- ${r.task}: engie=${fmt(r.engie)} | claude=${fmt(r.claude)} | codex=${fmt(r.codex)}`);
+  }
+
+  console.log("Repo Benchmark Results:");
+  for (const r of repoResults) {
+    const fmt = (x) => (x.ok ? "PASS" : `FAIL (${x.error || "tests failed"})`);
     console.log(`- ${r.task}: engie=${fmt(r.engie)} | claude=${fmt(r.claude)} | codex=${fmt(r.codex)}`);
   }
 }

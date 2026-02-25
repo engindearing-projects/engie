@@ -50,7 +50,7 @@ export async function run({ args } = {}) {
   const requiredTools = [
     { check: checks.bun, required: true },
     { check: checks.brew, required: false },
-    { check: checks.openclaw, required: true },
+    { check: checks.gateway, required: true },
     { check: checks.claude, required: false },
     { check: checks.ollama, required: false },
   ];
@@ -121,7 +121,7 @@ export async function run({ args } = {}) {
       issues++;
     }
   } else {
-    fail("Config: no openclaw.json found");
+    fail("Config: no gateway config found (cozyterm.json or openclaw.json)");
     issues++;
   }
 

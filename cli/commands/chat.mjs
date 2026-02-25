@@ -15,7 +15,7 @@ import { injectContext } from "../lib/memory-context.js";
 export async function run({ oneshot = null, sessionKey = "agent:engie:main", coach = false } = {}) {
   const configPath = findConfig();
   if (!configPath) {
-    console.error(chalk.red("Could not find openclaw.json config."));
+    console.error(chalk.red("Could not find gateway config."));
     console.error(chalk.gray("Run `cozy init` to set up, or set COZYTERM_CONFIG."));
     process.exit(1);
   }

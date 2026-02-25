@@ -1,14 +1,43 @@
 import React, { useRef, useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
-import { colors } from "../lib/theme.js";
+import { colors, NO_COLOR } from "../lib/theme.js";
 import { renderMarkdownSafe } from "../lib/markdown.js";
 
 const e = React.createElement;
 
 const THROTTLE_MS = 100;
 
-export function StreamingMessage({ text, busy }) {
+// Friendly labels for tool names shown in the spinner
+const TOOL_LABELS = {
+  Read: "Reading",
+  Grep: "Searching",
+  Glob: "Finding files",
+  Bash: "Running command",
+  Edit: "Editing",
+  Write: "Writing",
+  WebFetch: "Fetching URL",
+  WebSearch: "Searching web",
+  mcp__atlassian__jira_search: "Searching Jira",
+  mcp__atlassian__jira_get_issue: "Loading ticket",
+  mcp__slack__slack_post_message: "Posting to Slack",
+  mcp__slack__slack_get_channel_history: "Reading Slack",
+  mcp__figma__get_screenshot: "Getting Figma screenshot",
+};
+
+function getToolLabel(toolName) {
+  if (!toolName) return null;
+  if (TOOL_LABELS[toolName]) return TOOL_LABELS[toolName] + "...";
+  // Try prefix match for MCP tools
+  for (const [key, label] of Object.entries(TOOL_LABELS)) {
+    if (toolName.startsWith(key)) return label + "...";
+  }
+  // Fallback: humanize the tool name
+  const cleaned = toolName.replace(/^mcp__\w+__/, "").replace(/_/g, " ");
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1) + "...";
+}
+
+export function StreamingMessage({ text, busy, toolStage, dynamicStatus }) {
   const [rendered, setRendered] = useState("");
   const timerRef = useRef(null);
   const latestTextRef = useRef("");
@@ -47,13 +76,16 @@ export function StreamingMessage({ text, busy }) {
   // Not busy and no text — render nothing
   if (!busy && !text) return null;
 
-  // Busy but still waiting for first token
+  // Busy but still waiting for first token — show context-aware spinner
   if (busy && !text) {
+    const label = dynamicStatus || getToolLabel(toolStage) || "Thinking...";
+    const spinner = NO_COLOR
+      ? e(Text, { color: colors.cyan }, "...")
+      : e(Text, { color: colors.cyan }, e(Spinner, { type: "dots" }));
+
     return e(Box, { marginLeft: 2, marginTop: 1 },
-      e(Text, { color: colors.cyan },
-        e(Spinner, { type: "dots" })
-      ),
-      e(Text, { color: colors.gray }, " Thinking...")
+      spinner,
+      e(Text, { color: colors.gray }, ` ${label}`)
     );
   }
 
@@ -63,7 +95,9 @@ export function StreamingMessage({ text, busy }) {
       e(Text, { color: colors.cyanDim, bold: true }, "engie"),
       e(Text, { color: colors.gray }, " "),
       busy
-        ? e(Text, { color: colors.cyan }, e(Spinner, { type: "dots" }))
+        ? (NO_COLOR
+            ? e(Text, { color: colors.cyan }, "...")
+            : e(Text, { color: colors.cyan }, e(Spinner, { type: "dots" })))
         : null
     ),
     e(Text, null, rendered || text)

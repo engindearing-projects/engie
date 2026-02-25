@@ -292,29 +292,36 @@ async function mineSource(orgName, maxRepos, maxItems, includeClosedIssues = fal
       }
     } catch {}
 
-    // Merged PRs
+    // Merged PRs — STRICT: only PRs merged into main/master/dev
     try {
-      const data = gh(`pr list --repo ${orgName}/${repoName} --state merged --limit 5 --json number,title,body,author,state`);
+      const data = gh(`pr list --repo ${orgName}/${repoName} --state merged --limit 10 --json number,title,body,author,state,baseRefName`);
       if (data) {
         for (const pr of JSON.parse(data)) {
           if (items >= maxItems) break;
           if (!pr.title || pr.title.length < 10) continue;
+          // Only PRs merged into main/master/dev
+          const base = (pr.baseRefName || "").toLowerCase();
+          if (base && !["main", "master", "dev", "develop", "production"].includes(base)) continue;
+          if (/^bump|^update deps|^chore\(deps\)|^dependabot|^renovate|^\[bot\]|^merge branch/i.test(pr.title)) continue;
           await collectPair(prToPrompt(repoName, pr, stack), `merged:${orgName}/${repoName}#${pr.number}`);
           items++; await sleep(DELAY_MS);
         }
       }
     } catch {}
 
-    // Recent commits (more depth)
+    // Merge commits only — skip raw commits (WIP, progress saves, etc.)
     try {
-      const data = gh(`api repos/${orgName}/${repoName}/commits --jq '.[0:6] | .[] | .commit.message + "|||" + .commit.author.name + "|||" + .commit.author.date'`);
+      const data = gh(`api repos/${orgName}/${repoName}/commits?per_page=12 --jq '[.[] | select(.parents | length == 2)] | .[0:6] | .[] | .commit.message + "|||" + .commit.author.name + "|||" + .commit.author.date'`);
       if (data) {
         for (const line of data.split("\n")) {
           if (items >= maxItems) break;
           const [rawMsg, author, date] = line.split("|||");
           if (!rawMsg) continue;
-          const msg = rawMsg.split("\n")[0];
-          if (msg.length < 15 || /^merge/i.test(msg) || /^bump|^update deps|^chore\(deps\)/i.test(msg)) continue;
+          // Extract PR title from merge commit message
+          let msg = rawMsg.split("\n")[0];
+          const prMatch = rawMsg.match(/Merge pull request #\d+.*?\n\n(.+)/s);
+          if (prMatch) msg = prMatch[1].split("\n")[0];
+          if (msg.length < 15 || /^bump|^update deps|^chore\(deps\)|^dependabot|^renovate|^\[bot\]/i.test(msg)) continue;
           await collectPair(commitToPrompt(repoName, { message: msg, author, date }, stack), `commit:${orgName}/${repoName}`);
           items++; await sleep(DELAY_MS);
         }

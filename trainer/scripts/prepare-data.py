@@ -4,8 +4,13 @@ The Forge — Data Preparation
 Reads raw JSONL pair files, filters, deduplicates, and splits into train/valid sets.
 Outputs MLX chat format for LoRA training.
 
+Now supports multi-model training via task_type classification.
+Each domain config specifies which task_types it accepts.
+
 Usage:
     python scripts/prepare-data.py [--min-pairs 10]
+    python scripts/prepare-data.py --domain reasoning
+    python scripts/prepare-data.py --domain tools --task-type tools
 """
 
 import json
@@ -16,12 +21,15 @@ import argparse
 from pathlib import Path
 from collections import defaultdict
 from domain_config import get_active_domain, load_domain
+from classify import classify_prompt, classify_pair, pair_matches_domain
 
 TRAINER_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = TRAINER_DIR / "data" / "raw"
 TRACES_DIR = TRAINER_DIR / "data" / "traces"
-TRAIN_FILE = TRAINER_DIR / "data" / "train.jsonl"
-VALID_FILE = TRAINER_DIR / "data" / "valid.jsonl"
+
+# Output paths are now domain-aware (set in main)
+TRAIN_FILE = None
+VALID_FILE = None
 
 # Loaded from domain config in main()
 DOMAIN = None
@@ -43,10 +51,9 @@ CLAUDE_REJECT_PATTERNS = [
     "tool_use_id",
 ]
 
-# Minimum quality thresholds for v2
-MIN_CLAUDE_LENGTH = 500          # Claude response must be substantial
-MIN_CODE_BLOCKS = 1              # Must contain at least one code block
-MAX_PERMISSION_RATIO = 0.3       # If >30% of response is about permissions, reject
+# Minimum quality thresholds (coding-specific defaults, relaxed per domain)
+MIN_CLAUDE_LENGTH = 500
+MIN_CODE_BLOCKS = 1
 
 
 def load_raw_pairs():
@@ -70,12 +77,7 @@ def load_raw_pairs():
 
 
 def load_self_iterate_traces():
-    """Load successful self-iterate traces as training examples.
-
-    Self-iterate traces contain multi-turn conversations where the model
-    iterates on code until tests pass. We extract the final successful
-    attempt as a training example (prompt → correct code).
-    """
+    """Load successful self-iterate traces as training examples."""
     examples = []
     if not TRACES_DIR.exists():
         return examples
@@ -88,14 +90,12 @@ def load_self_iterate_traces():
                     continue
                 try:
                     record = json.loads(line)
-                    # Only use successful iterations
                     if not record.get("success"):
                         continue
                     trace = record.get("trace", [])
                     if len(trace) < 2:
                         continue
 
-                    # Extract: first user message = prompt, last assistant message = gold
                     prompt = None
                     last_assistant = None
                     for msg in trace:
@@ -107,6 +107,7 @@ def load_self_iterate_traces():
                     if prompt and last_assistant and len(last_assistant) >= MIN_RESPONSE_LENGTH:
                         examples.append({
                             "type": "self_iterate",
+                            "task_type": "coding",  # self-iterate traces are always coding
                             "prompt": prompt,
                             "gold_response": last_assistant,
                             "iterations": record.get("iterations", 1),
@@ -118,20 +119,11 @@ def load_self_iterate_traces():
 
 
 def load_tool_traces():
-    """Load tool-use traces from agent loop and Claude Code sessions.
-
-    These teach the model the agent loop: when to call tools, how to
-    interpret results, and how to chain tool calls. The full multi-turn
-    trace is preserved for agent training.
-
-    Loads both *-tools.jsonl (Claude Code) and *-agent.jsonl (engie-coder
-    tool loop) trace files with metadata types: tool_use, agent_loop.
-    """
+    """Load tool-use traces from agent loop and Claude Code sessions."""
     examples = []
     if not TRACES_DIR.exists():
         return examples
 
-    # Match both tool trace formats
     trace_files = sorted(TRACES_DIR.glob("*-tools.jsonl")) + sorted(TRACES_DIR.glob("*-agent.jsonl"))
     accepted_types = {"tool_use", "agent_loop"}
 
@@ -154,8 +146,6 @@ def load_tool_traces():
                     if len(prompt) < 20:
                         continue
 
-                    # For tool-use traces, we flatten the full conversation
-                    # into a single assistant turn showing the reasoning + actions
                     full_response = ""
                     for msg in trace:
                         if msg["role"] == "assistant":
@@ -169,6 +159,7 @@ def load_tool_traces():
                     if len(full_response) >= MIN_RESPONSE_LENGTH:
                         examples.append({
                             "type": "tool_trace",
+                            "task_type": "tools",  # tool traces are always tools
                             "prompt": prompt,
                             "gold_response": full_response.strip(),
                             "tools_used": meta.get("tools_used", []),
@@ -179,108 +170,112 @@ def load_tool_traces():
 
 
 def has_code_block(text):
-    """Check if text contains a markdown code block."""
     return "```" in text
 
 
 def is_ground_truth(pair):
-    """Check if this pair has a real ground-truth diff."""
     return pair.get("type") == "ground_truth" and pair.get("ground_truth_diff")
 
 
 def is_permission_garbage(text):
-    """Check if Claude's response is mostly about asking for permissions."""
     if not text:
         return True
     text_lower = text.lower()
     hits = sum(1 for pat in CLAUDE_REJECT_PATTERNS if pat.lower() in text_lower)
-    # If 3+ reject patterns match, it's permission-asking garbage
     if hits >= 3:
         return True
-    # If response looks like raw JSON tool output (common with permission denials)
     if text.strip().startswith('{"type":') or text.strip().startswith('{"result":'):
         return True
     return False
 
 
 def count_code_blocks(text):
-    """Count fenced code blocks in text."""
     return text.count("```") // 2
 
 
-def filter_pair(pair):
+def filter_pair(pair, domain_id="coding", max_chars=24000):
     """Return True if pair should be kept for training.
 
-    v2 hard filters:
-    - Reject permission-asking Claude responses
-    - Reject responses without code blocks
-    - Require minimum 500 chars from Claude
-    - Reject raw JSON/tool output
-    - Reject empty or near-empty responses
+    Filtering rules vary by domain:
+    - coding: strict (require code blocks, 500 char min)
+    - reasoning: relaxed (no code blocks required, 200 char min)
+    - tools: moderate (tool calls expected, 100 char min)
+    - chat: relaxed (short responses OK, 20 char min)
+
+    max_chars caps total prompt+response length to prevent NaN from
+    sequences that overflow the model's context window during training.
+    24000 chars ≈ 6000 tokens — fits comfortably in 6144 max_seq.
     """
     prompt = pair.get("prompt", "")
+    min_prompt_len = DOMAIN.get("data", {}).get("min_prompt_length", 20)
 
-    # Prompt must be non-trivial
-    if len(prompt) < 20:
+    if len(prompt) < min_prompt_len:
         return False
 
-    # Ground-truth pairs: use real diff as gold, only need the diff to be valid
+    # Cap total length to prevent NaN from oversized sequences
+    claude = pair.get("claude_response", "") or pair.get("ground_truth_diff", "")
+    total_len = len(prompt) + len(claude)
+    if total_len > max_chars:
+        return False
+
+    # Ground-truth pairs: always coding
     if is_ground_truth(pair):
+        if domain_id != "coding":
+            return False
         diff = pair.get("ground_truth_diff", "")
-        # Ground truth must have actual code changes
         if len(diff) < 100:
             return False
-        # Must look like a real diff
         if "+" not in diff and "-" not in diff:
             return False
         return True
 
-    # Standard distillation pairs: use Claude response as gold
     claude = pair.get("claude_response", "")
     local = pair.get("local_response", "")
 
-    # Both responses must exist
+    # Both responses must exist (for distillation pairs)
     if not claude or not local:
         return False
 
-    # HARD FILTER: reject permission-asking garbage
+    # Universal: reject permission-asking garbage
     if is_permission_garbage(claude):
         return False
 
-    # HARD FILTER: minimum length — Claude's gold response must be substantial
-    if len(claude) < MIN_CLAUDE_LENGTH:
-        return False
-
-    # HARD FILTER: must contain actual code
-    if not has_code_block(claude):
-        return False
-
-    # HARD FILTER: must have at least MIN_CODE_BLOCKS code blocks
-    if count_code_blocks(claude) < MIN_CODE_BLOCKS:
-        return False
-
-    # Reject responses that are mostly error messages or tool output
+    # Reject raw tool/error output
     if '"is_error":true' in claude or '"stop_reason":null' in claude:
         return False
+
+    # Domain-specific quality thresholds
+    if domain_id == "coding":
+        if len(claude) < 500:
+            return False
+        if not has_code_block(claude):
+            return False
+        if count_code_blocks(claude) < 1:
+            return False
+    elif domain_id == "reasoning":
+        if len(claude) < 200:
+            return False
+    elif domain_id == "tools":
+        if len(claude) < 100:
+            return False
+    elif domain_id == "chat":
+        if len(claude) < 20:
+            return False
+    else:
+        # Unknown domain — use coding defaults
+        if len(claude) < 500:
+            return False
 
     return True
 
 
 def prompt_hash(prompt):
-    """Create a hash of the prompt for deduplication."""
     normalized = prompt.strip().lower()
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 
 def to_chat_format(pair):
-    """Convert a pair to MLX chat training format.
-
-    Handles four data types:
-    - Ground-truth: real merged PR diff as gold answer
-    - Standard distillation: Claude's response as gold answer
-    - Self-iterate: model's own corrected code (after iteration) as gold
-    - Tool traces: Claude's full tool-use conversation as gold
-    """
+    """Convert a pair to MLX chat training format."""
     pair_type = pair.get("type")
 
     if pair_type == "self_iterate":
@@ -303,7 +298,7 @@ def to_chat_format(pair):
 
 
 def main():
-    global DOMAIN, SYSTEM_PROMPT, MIN_RESPONSE_LENGTH
+    global DOMAIN, SYSTEM_PROMPT, MIN_RESPONSE_LENGTH, TRAIN_FILE, VALID_FILE
 
     parser = argparse.ArgumentParser(description="Prepare training data from raw pairs")
     parser.add_argument("--min-pairs", type=int, default=10,
@@ -312,6 +307,8 @@ def main():
                         help="Train/valid split ratio (default: 0.9)")
     parser.add_argument("--domain", type=str, default=None,
                         help="Domain to use (default: active domain)")
+    parser.add_argument("--task-type", type=str, default=None,
+                        help="Override: only include this task type (coding/reasoning/tools/chat)")
     args = parser.parse_args()
 
     # Load domain config
@@ -321,8 +318,27 @@ def main():
         DOMAIN = get_active_domain()
     SYSTEM_PROMPT = DOMAIN["system_prompt"]
     MIN_RESPONSE_LENGTH = DOMAIN.get("data", {}).get("min_response_length", 50)
+    domain_id = DOMAIN["id"]
 
-    print(f"Domain: {DOMAIN['name']} ({DOMAIN['id']})")
+    # Domain-specific output paths
+    data_dir = TRAINER_DIR / "data"
+    if domain_id == "coding":
+        # Backward compat: coding uses the root data/ dir
+        TRAIN_FILE = data_dir / "train.jsonl"
+        VALID_FILE = data_dir / "valid.jsonl"
+    else:
+        domain_dir = data_dir / domain_id
+        domain_dir.mkdir(parents=True, exist_ok=True)
+        TRAIN_FILE = domain_dir / "train.jsonl"
+        VALID_FILE = domain_dir / "valid.jsonl"
+
+    # Determine which task types this domain accepts
+    accepted_types = set(DOMAIN.get("task_types", [domain_id]))
+    if args.task_type:
+        accepted_types = {args.task_type}
+
+    print(f"Domain: {DOMAIN['name']} ({domain_id})")
+    print(f"Accepted task types: {', '.join(sorted(accepted_types))}")
     print(f"Loading raw pairs from {RAW_DIR}...")
     pairs = load_raw_pairs()
     print(f"  Loaded {len(pairs)} raw pairs")
@@ -342,16 +358,31 @@ def main():
         print("No data found. Collect more data first.")
         sys.exit(1)
 
-    # Filter (only standard pairs need filtering — traces are pre-filtered)
+    # Classify untagged pairs
+    classified_counts = defaultdict(int)
+    for p in all_data:
+        if not p.get("task_type"):
+            classify_pair(p)
+        classified_counts[p.get("task_type", "unknown")] += 1
+
+    print(f"\n  Classification distribution (all data):")
+    for tt, count in sorted(classified_counts.items(), key=lambda x: -x[1]):
+        print(f"    {tt}: {count}")
+
+    # Filter by task type for this domain
+    type_filtered = [p for p in all_data if pair_matches_domain(p, domain_id)]
+    type_rejected = len(all_data) - len(type_filtered)
+    print(f"\n  After task_type filter: {len(type_filtered)} examples ({type_rejected} excluded for other domains)")
+
+    # Quality filter (domain-aware)
     filtered = []
     rejected_reasons = defaultdict(int)
-    for p in all_data:
+    for p in type_filtered:
         if p.get("type") in ("self_iterate", "tool_trace"):
             filtered.append(p)
-        elif filter_pair(p):
+        elif filter_pair(p, domain_id):
             filtered.append(p)
         else:
-            # Track why pairs were rejected
             claude = p.get("claude_response", "")
             if is_ground_truth(p):
                 rejected_reasons["gt_too_short"] += 1
@@ -359,15 +390,15 @@ def main():
                 rejected_reasons["missing_response"] += 1
             elif is_permission_garbage(claude):
                 rejected_reasons["permission_garbage"] += 1
-            elif len(claude) < MIN_CLAUDE_LENGTH:
+            elif domain_id == "coding" and len(claude) < 500:
                 rejected_reasons["too_short"] += 1
-            elif not has_code_block(claude):
+            elif domain_id == "coding" and not has_code_block(claude):
                 rejected_reasons["no_code_blocks"] += 1
             else:
                 rejected_reasons["other"] += 1
 
-    rejected_total = len(all_data) - len(filtered)
-    print(f"  After filtering: {len(filtered)} examples ({rejected_total} rejected)")
+    rejected_total = len(type_filtered) - len(filtered)
+    print(f"  After quality filter: {len(filtered)} examples ({rejected_total} rejected)")
     if rejected_reasons:
         print(f"  Rejection breakdown:")
         for reason, count in sorted(rejected_reasons.items(), key=lambda x: -x[1]):
@@ -400,7 +431,6 @@ def main():
     train = examples[:split_idx]
     valid = examples[split_idx:]
 
-    # Ensure at least 1 validation example
     if len(valid) == 0 and len(train) > 1:
         valid = [train.pop()]
 
@@ -415,16 +445,15 @@ def main():
         for ex in valid:
             f.write(json.dumps(ex) + "\n")
 
-    # MLX-LM expects test.jsonl to exist — write empty valid set or skip
-    test_file = TRAINER_DIR / "data" / "test.jsonl"
+    # MLX-LM expects test.jsonl to exist
+    test_file = TRAIN_FILE.parent / "test.jsonl"
     if not test_file.exists() or test_file.stat().st_size == 0:
-        # Write a small test set (reuse last few valid examples)
         test = valid[:min(5, len(valid))]
         with open(test_file, "w") as f:
             for ex in test:
                 f.write(json.dumps(ex) + "\n")
 
-    print(f"\nOutput:")
+    print(f"\nOutput ({domain_id}):")
     print(f"  Train: {len(train)} examples → {TRAIN_FILE}")
     print(f"  Valid: {len(valid)} examples → {VALID_FILE}")
     print(f"  Test:  {min(5, len(valid))} examples → {test_file}")

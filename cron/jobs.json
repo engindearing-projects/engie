@@ -7,7 +7,7 @@
       "name": "Morning Brief",
       "enabled": true,
       "createdAtMs": 1771289943856,
-      "updatedAtMs": 1771603256742,
+      "updatedAtMs": 1771948819519,
       "schedule": {
         "kind": "cron",
         "expr": "0 8 * * 1-5",
@@ -25,10 +25,10 @@
         "bestEffort": true
       },
       "state": {
-        "nextRunAtMs": 1771862400000,
-        "lastRunAtMs": 1771603200013,
+        "nextRunAtMs": 1772035200000,
+        "lastRunAtMs": 1771948800020,
         "lastStatus": "ok",
-        "lastDurationMs": 56729,
+        "lastDurationMs": 19499,
         "consecutiveErrors": 0
       }
     },
@@ -38,7 +38,7 @@
       "name": "Afternoon Follow-up",
       "enabled": true,
       "createdAtMs": 1771289950483,
-      "updatedAtMs": 1771624803939,
+      "updatedAtMs": 1771970419499,
       "schedule": {
         "kind": "cron",
         "expr": "0 14 * * 1-5",
@@ -56,10 +56,10 @@
         "bestEffort": true
       },
       "state": {
-        "nextRunAtMs": 1771884000000,
-        "lastRunAtMs": 1771624800006,
+        "nextRunAtMs": 1772056800000,
+        "lastRunAtMs": 1771970400011,
         "lastStatus": "ok",
-        "lastDurationMs": 3933,
+        "lastDurationMs": 19488,
         "consecutiveErrors": 0
       }
     },
@@ -69,7 +69,7 @@
       "name": "Research Report Delivery",
       "enabled": true,
       "createdAtMs": 1771483926790,
-      "updatedAtMs": 1771687803521,
+      "updatedAtMs": 1771947019526,
       "schedule": {
         "kind": "cron",
         "expr": "30 7 * * *",
@@ -87,10 +87,10 @@
         "bestEffort": true
       },
       "state": {
-        "nextRunAtMs": 1771774200000,
-        "lastRunAtMs": 1771687800013,
+        "nextRunAtMs": 1772033400000,
+        "lastRunAtMs": 1771947000012,
         "lastStatus": "ok",
-        "lastDurationMs": 3508,
+        "lastDurationMs": 19514,
         "consecutiveErrors": 0
       }
     },
@@ -160,7 +160,7 @@
       "name": "Forge Nightly Training",
       "enabled": true,
       "createdAtMs": 1771548000000,
-      "updatedAtMs": 1771668003534,
+      "updatedAtMs": 1771946203810,
       "schedule": {
         "kind": "cron",
         "expr": "0 2 * * *",
@@ -179,10 +179,10 @@
       },
       "state": {
         "consecutiveErrors": 0,
-        "nextRunAtMs": 1771754400000,
-        "lastRunAtMs": 1771668000010,
+        "nextRunAtMs": 1772013600000,
+        "lastRunAtMs": 1771946184164,
         "lastStatus": "ok",
-        "lastDurationMs": 3524
+        "lastDurationMs": 19646
       }
     },
     {
@@ -191,7 +191,7 @@
       "name": "Forge Weekly Report",
       "enabled": true,
       "createdAtMs": 1771548000000,
-      "updatedAtMs": 1771632000000,
+      "updatedAtMs": 1771866600038,
       "schedule": {
         "kind": "cron",
         "expr": "0 9 * * 1",
@@ -209,8 +209,12 @@
         "bestEffort": true
       },
       "state": {
-        "consecutiveErrors": 0,
-        "nextRunAtMs": 1771866000000
+        "consecutiveErrors": 1,
+        "nextRunAtMs": 1772470800000,
+        "lastRunAtMs": 1771866000015,
+        "lastStatus": "error",
+        "lastDurationMs": 600023,
+        "lastError": "Error: cron: job execution timed out"
       }
     },
     {
@@ -218,7 +222,7 @@
       "name": "Deploy Thread Monitor — hos-portal-api dev redeploy",
       "enabled": true,
       "createdAtMs": 1771617861697,
-      "updatedAtMs": 1771641003966,
+      "updatedAtMs": 1771979419229,
       "schedule": {
         "kind": "cron",
         "expr": "*/30 8-18 * * 1-5",
@@ -236,10 +240,10 @@
         "bestEffort": true
       },
       "state": {
-        "nextRunAtMs": 1771862400000,
-        "lastRunAtMs": 1771641000011,
+        "nextRunAtMs": 1771981200000,
+        "lastRunAtMs": 1771979400015,
         "lastStatus": "ok",
-        "lastDurationMs": 3955,
+        "lastDurationMs": 19214,
         "consecutiveErrors": 0
       }
     }

@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS training_pairs (
   local_model TEXT,
   has_code INTEGER DEFAULT 0,
   used_in_training INTEGER DEFAULT 0,
-  training_version TEXT
+  training_version TEXT,
+  task_type TEXT,
+  task_type_confidence REAL
 );
 
 CREATE TABLE IF NOT EXISTS training_runs (
@@ -75,6 +77,24 @@ CREATE TABLE IF NOT EXISTS evaluations (
 CREATE INDEX IF NOT EXISTS idx_pairs_hash ON training_pairs(prompt_hash);
 CREATE INDEX IF NOT EXISTS idx_pairs_used ON training_pairs(used_in_training);
 CREATE INDEX IF NOT EXISTS idx_pairs_ts ON training_pairs(timestamp);
+
+CREATE TABLE IF NOT EXISTS comparisons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prompt TEXT NOT NULL,
+  goal TEXT,
+  context TEXT,
+  claude_response TEXT,
+  claude_duration_ms INTEGER,
+  engie_response TEXT,
+  engie_duration_ms INTEGER,
+  session_key TEXT,
+  complexity_score REAL,
+  task_type TEXT,
+  task_type_confidence REAL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_comparisons_ts ON comparisons(created_at);
 `;
 
 export function getDb() {
@@ -88,6 +108,26 @@ export function getDb() {
   _db = new Database(DB_PATH);
   _db.exec("PRAGMA journal_mode=WAL");
   _db.exec(SCHEMA);
+
+  // Migration: add task_type columns to existing DBs + create indexes
+  try {
+    const cols = _db.prepare("PRAGMA table_info(training_pairs)").all().map(c => c.name);
+    if (!cols.includes("task_type")) {
+      _db.exec("ALTER TABLE training_pairs ADD COLUMN task_type TEXT");
+      _db.exec("ALTER TABLE training_pairs ADD COLUMN task_type_confidence REAL");
+    }
+    const compCols = _db.prepare("PRAGMA table_info(comparisons)").all().map(c => c.name);
+    if (!compCols.includes("task_type")) {
+      _db.exec("ALTER TABLE comparisons ADD COLUMN task_type TEXT");
+      _db.exec("ALTER TABLE comparisons ADD COLUMN task_type_confidence REAL");
+    }
+  } catch (e) {
+    // Migration already applied or not needed
+  }
+  // Indexes on task_type (safe to run after migration or fresh create)
+  _db.exec("CREATE INDEX IF NOT EXISTS idx_pairs_task_type ON training_pairs(task_type)");
+  _db.exec("CREATE INDEX IF NOT EXISTS idx_comparisons_task_type ON comparisons(task_type)");
+
   return _db;
 }
 
@@ -103,8 +143,9 @@ export function recordPair(pair) {
     INSERT OR IGNORE INTO training_pairs
       (id, prompt_hash, timestamp, complexity_score, routed_to,
        claude_response_length, local_response_length,
-       claude_duration_ms, local_duration_ms, local_model, has_code)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       claude_duration_ms, local_duration_ms, local_model, has_code,
+       task_type, task_type_confidence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     pair.id,
     pair.prompt_hash,
@@ -116,7 +157,9 @@ export function recordPair(pair) {
     pair.claude_duration_ms ?? null,
     pair.local_duration_ms ?? null,
     pair.local_model ?? null,
-    pair.has_code ? 1 : 0
+    pair.has_code ? 1 : 0,
+    pair.task_type ?? null,
+    pair.task_type_confidence ?? null
   );
 }
 
@@ -275,6 +318,14 @@ export function getForgeStats() {
   const totalRuns = db.prepare("SELECT COUNT(*) as count FROM training_runs").get()?.count ?? 0;
   const totalVersions = db.prepare("SELECT COUNT(*) as count FROM model_versions").get()?.count ?? 0;
 
+  // Task type distribution
+  const taskTypeCounts = {};
+  const rows = db.prepare("SELECT task_type, COUNT(*) as count FROM training_pairs WHERE task_type IS NOT NULL GROUP BY task_type").all();
+  for (const row of rows) {
+    taskTypeCounts[row.task_type] = row.count;
+  }
+  const untagged = db.prepare("SELECT COUNT(*) as count FROM training_pairs WHERE task_type IS NULL").get()?.count ?? 0;
+
   return {
     totalPairs,
     unusedPairs,
@@ -282,5 +333,46 @@ export function getForgeStats() {
     totalVersions,
     lastRun,
     activeVersion,
+    taskTypeCounts,
+    untaggedPairs: untagged,
   };
+}
+
+// ── Comparisons (Training Mode) ─────────────────────────────────────────────
+
+export function recordComparison(comp) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO comparisons
+      (prompt, goal, context, claude_response, claude_duration_ms,
+       engie_response, engie_duration_ms, session_key, complexity_score,
+       task_type, task_type_confidence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    comp.prompt,
+    comp.goal ?? null,
+    comp.context ?? null,
+    comp.claudeResponse ?? null,
+    comp.claudeDurationMs ?? null,
+    comp.engieResponse ?? null,
+    comp.engieDurationMs ?? null,
+    comp.sessionKey ?? null,
+    comp.complexityScore ?? null,
+    comp.taskType ?? null,
+    comp.taskTypeConfidence ?? null
+  );
+}
+
+export function getComparisons(limit = 50) {
+  const db = getDb();
+  return db.prepare("SELECT * FROM comparisons ORDER BY id DESC LIMIT ?").all(limit);
+}
+
+export function getComparisonStats() {
+  const db = getDb();
+  const total = db.prepare("SELECT COUNT(*) as count FROM comparisons").get()?.count ?? 0;
+  const withGoal = db.prepare("SELECT COUNT(*) as count FROM comparisons WHERE goal IS NOT NULL").get()?.count ?? 0;
+  const avgClaudeDuration = db.prepare("SELECT AVG(claude_duration_ms) as avg FROM comparisons WHERE claude_duration_ms IS NOT NULL").get()?.avg ?? 0;
+  const avgEngieDuration = db.prepare("SELECT AVG(engie_duration_ms) as avg FROM comparisons WHERE engie_duration_ms IS NOT NULL").get()?.avg ?? 0;
+  return { total, withGoal, avgClaudeDuration: Math.round(avgClaudeDuration), avgEngieDuration: Math.round(avgEngieDuration) };
 }

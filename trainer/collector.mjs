@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, appendFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createHash, randomUUID } from "crypto";
+import { classifyPrompt } from "./classify.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RAW_DIR = resolve(__dirname, "data", "raw");
@@ -137,6 +138,13 @@ export class Collector {
     // Only write if we got both responses
     if (!claudeResponse || !localResponse) return;
 
+    // Classify prompt for multi-model routing
+    const classification = classifyPrompt(prompt, {
+      hasCode: /```/.test(claudeResponse),
+      hasToolCalls: /\[Tool:/.test(claudeResponse),
+      responseLength: claudeResponse.length,
+    });
+
     const pair = {
       id: `pair_${randomUUID().replace(/-/g, "").slice(0, 12)}`,
       timestamp: new Date().toISOString(),
@@ -144,6 +152,8 @@ export class Collector {
       prompt_hash: promptHash,
       complexity_score: complexityScore ?? null,
       routed_to: routedTo,
+      task_type: classification.type,
+      task_type_confidence: classification.confidence,
       claude_response: claudeResponse,
       claude_duration_ms: claudeDurationMs,
       local_response: localResponse,
@@ -168,13 +178,53 @@ export class Collector {
         local_duration_ms: pair.local_duration_ms,
         local_model: pair.local_model,
         has_code: /```/.test(pair.claude_response),
+        task_type: classification.type,
+        task_type_confidence: classification.confidence,
       });
     } catch (err) {
       // DB errors are non-fatal
       console.error("[Forge Collector] DB error:", err.message);
     }
 
-    console.log(`[Forge Collector] Pair ${pair.id} saved (${claudeResponse.length}/${localResponse.length} chars)`);
+    console.log(`[Forge Collector] Pair ${pair.id} [${classification.type}] saved (${claudeResponse.length}/${localResponse.length} chars)`);
+  }
+
+  /**
+   * Collect a comparison from dual-send (training mode).
+   * Stores Claude and engie-coder responses side-by-side.
+   * Fire-and-forget — never blocks the caller.
+   */
+  collectComparison({ prompt, goal, context, claudeResponse, claudeDurationMs, engieResponse, engieDurationMs, sessionKey, complexityScore }) {
+    if (!this.enabled) return;
+    if (!prompt) return;
+
+    const classification = classifyPrompt(prompt, {
+      hasCode: /```/.test(claudeResponse || ""),
+      hasToolCalls: /\[Tool:/.test(claudeResponse || ""),
+      responseLength: claudeResponse?.length,
+    });
+
+    (async () => {
+      try {
+        const { recordComparison } = await import("./forge-db.js");
+        recordComparison({
+          prompt,
+          goal,
+          context,
+          claudeResponse,
+          claudeDurationMs,
+          engieResponse,
+          engieDurationMs,
+          sessionKey,
+          complexityScore,
+          taskType: classification.type,
+          taskTypeConfidence: classification.confidence,
+        });
+        console.log(`[Forge Collector] Comparison [${classification.type}] saved (claude=${claudeDurationMs}ms engie=${engieDurationMs}ms)`);
+      } catch (err) {
+        console.error("[Forge Collector] Comparison error:", err.message);
+      }
+    })();
   }
 
   get inflight() {

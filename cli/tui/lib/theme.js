@@ -1,17 +1,39 @@
-// CozyTerm TUI theme — colors, branding
+// CozyTerm TUI theme — semantic colors, branding
 
-export const colors = {
-  cyan: "#06b6d4",
-  cyanDim: "#0891b2",
-  gray: "#6b7280",
-  grayDim: "#374151",
-  white: "#f9fafb",
-  red: "#ef4444",
-  yellow: "#eab308",
-  green: "#22c55e",
+export const themes = {
+  default: {
+    primary: "#06b6d4",      // cyan — branding, active elements
+    primaryDim: "#0891b2",   // dimmer cyan — labels
+    accent: "#22c55e",       // green — success, healthy
+    warning: "#eab308",      // yellow — warnings, unread
+    error: "#ef4444",        // red — errors, unhealthy
+    text: "#f9fafb",         // white — primary text
+    textMuted: "#6b7280",    // gray — secondary text
+    textDim: "#374151",      // dark gray — borders, separators
+    surface: "#1f2937",      // dark bg for cards/panels
+  },
 };
 
-export const VERSION = "0.4.0";
+// Active theme (reads ENGIE_THEME env var, defaults to "default")
+export const theme = themes[process.env.ENGIE_THEME] || themes.default;
+
+// Backward-compat alias — existing code uses colors.cyan etc.
+export const colors = {
+  cyan: theme.primary,
+  cyanDim: theme.primaryDim,
+  gray: theme.textMuted,
+  grayDim: theme.textDim,
+  white: theme.text,
+  red: theme.error,
+  yellow: theme.warning,
+  green: theme.accent,
+};
+
+// Environment detection
+export const NO_COLOR = !!process.env.NO_COLOR || process.env.TERM === "dumb";
+export const NARROW = (process.stdout.columns || 80) < 60;
+
+export const VERSION = "0.5.0";
 
 /**
  * Time-of-day greeting.

@@ -3,8 +3,13 @@
 
 import { execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { engieHome, logsDir } from "./paths.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+/** Code repo root (~/engie/) — distinct from data home (~/.cozyterm/) */
+const REPO_ROOT = resolve(__dirname, "../..");
 
 const HOME = process.env.HOME || "/tmp";
 const LAUNCH_AGENTS_DIR = join(HOME, "Library", "LaunchAgents");
@@ -129,9 +134,8 @@ export async function getAllServicesStatus() {
  * All paths resolved dynamically.
  */
 function generateGatewayPlist() {
-  const root = engieHome();
   const logs = logsDir();
-  const scriptPath = resolve(root, "scripts", "start-gateway.sh");
+  const scriptPath = resolve(REPO_ROOT, "scripts", "start-gateway.sh");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -153,7 +157,7 @@ function generateGatewayPlist() {
     <key>StandardErrorPath</key>
     <string>${join(logs, "gateway.err.log")}</string>
     <key>WorkingDirectory</key>
-    <string>${root}</string>
+    <string>${REPO_ROOT}</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -166,9 +170,8 @@ function generateGatewayPlist() {
 }
 
 function generateClaudeProxyPlist() {
-  const root = engieHome();
   const logs = logsDir();
-  const scriptsDir = resolve(root, "scripts");
+  const scriptsDir = resolve(REPO_ROOT, "scripts");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

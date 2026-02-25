@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import WebSocket from "ws";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
@@ -13,7 +13,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const PROJECT_DIR = resolve(__dirname, "..");
-const CONFIG_PATH = resolve(PROJECT_DIR, "config/openclaw.json");
+const CONFIG_PATH = existsSync(resolve(PROJECT_DIR, "config/cozyterm.json"))
+  ? resolve(PROJECT_DIR, "config/cozyterm.json")
+  : resolve(PROJECT_DIR, "config/openclaw.json");
 const DEFAULT_AGENT = "engie";
 const DEFAULT_SESSION_KEY = "agent:engie:main";
 const CLAUDE_PROXY_URL = process.env.CLAUDE_PROXY_URL || "http://127.0.0.1:18791";
@@ -32,15 +34,15 @@ let config;
 try {
   config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
 } catch (e) {
-  console.error("Failed to read openclaw.json:", e.message);
+  console.error("Failed to read gateway config:", e.message);
   process.exit(1);
 }
 
 const GW_PORT = config.gateway?.port ?? 18789;
-const GW_TOKEN = config.gateway?.auth?.token ?? process.env.OPENCLAW_GATEWAY_TOKEN;
+const GW_TOKEN = config.gateway?.auth?.token ?? process.env.COZYTERM_GATEWAY_TOKEN ?? process.env.OPENCLAW_GATEWAY_TOKEN;
 const WS_URL = `ws://localhost:${GW_PORT}`;
 
-// ── WebSocket connection to OpenClaw gateway ────────────────────────────────
+// ── WebSocket connection to CozyTerm gateway ────────────────────────────────
 let ws = null;
 let connected = false;
 let requestId = 0;
@@ -85,7 +87,7 @@ function connect() {
             minProtocol: 3,
             maxProtocol: 3,
             client: {
-              id: "openclaw-control-ui",
+              id: "cozyterm-ui",
               version: "1.0.0",
               platform: "node",
               mode: "ui",
@@ -412,7 +414,7 @@ server.tool(
 // Tool: engie_raw
 server.tool(
   "engie_raw",
-  "Call any OpenClaw gateway method directly. Use this for advanced operations not covered by other tools.",
+  "Call any gateway method directly. Use this for advanced operations not covered by other tools.",
   {
     method: z.string().describe("The gateway method to call (e.g., 'agents.list', 'skills.status', 'cron.list')"),
     params: z.string().optional().describe("JSON string of parameters to pass to the method"),

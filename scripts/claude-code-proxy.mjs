@@ -2,7 +2,7 @@
 
 // Claude Code Proxy Server
 // Wraps the `claude` CLI in headless mode (-p) behind an HTTP API
-// so CozyTerm (OpenClaw) can invoke it for heavy-brain tasks.
+// so CozyTerm can invoke it for heavy-brain tasks.
 //
 // Runs on the HOST (not in Docker) because `claude` authenticates
 // via the local subscription/keychain.
@@ -12,10 +12,19 @@
 //   CLAUDE_PROXY_PORT=18791 node scripts/claude-code-proxy.mjs
 
 import { createServer } from "node:http";
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import {
+  Semaphore,
+  cleanEnv,
+  stripSessionEnv,
+  claudeBin,
+  checkOnline,
+  invokeClaude as _invokeClaude,
+  PROJECT_DIR,
+} from "./shared-invoke.mjs";
 import { Router, HEAVY_PATTERNS } from "./router.mjs";
 import { runToolLoop } from "./tool-loop.mjs";
 
@@ -48,26 +57,9 @@ async function getToolCollector() {
 
 // ── Concurrency Limiter ─────────────────────────────────────────────────────
 
-class Semaphore {
-  constructor(max) {
-    this.max = max;
-    this.current = 0;
-    this.queue = [];
-  }
-  async acquire() {
-    if (this.current < this.max) { this.current++; return; }
-    await new Promise(resolve => this.queue.push(resolve));
-  }
-  release() {
-    this.current--;
-    if (this.queue.length > 0) { this.current++; this.queue.shift()(); }
-  }
-}
-
 const claudeLimiter = new Semaphore(parseInt(process.env.CLAUDE_MAX_CONCURRENT || "2", 10));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_DIR = resolve(__dirname, "..");
 
 const PORT = parseInt(process.env.CLAUDE_PROXY_PORT || "18791", 10);
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
@@ -108,7 +100,6 @@ const ENGIE_SYSTEM_PREAMBLE = [
 // ── State ────────────────────────────────────────────────────────────────────
 
 const activeJobs = new Map(); // jobId -> { process, startedAt, prompt }
-let onlineStatus = null; // cached: { online: bool, checkedAt: number }
 
 // ── Smart Router ─────────────────────────────────────────────────────────────
 
@@ -208,59 +199,8 @@ function fireDualComparison({ prompt, category, details, claudeText, claudeDurat
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function claudeBin() {
-  try {
-    const bin = execSync("which claude", { stdio: "pipe", env: cleanEnv() })
-      .toString()
-      .trim();
-    return bin || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Build a clean env for claude subprocess — strip all Claude Code session vars */
-function cleanEnv() {
-  const env = { ...process.env };
-  // Remove all vars that trigger nesting detection or session conflicts
-  delete env.CLAUDECODE;
-  delete env.CLAUDE_CODE_ENTRY;
-  delete env.CLAUDE_SESSION_ID;
-  delete env.CLAUDE_CODE_SESSION;
-  // Remove any CLAUDECODE_* prefixed vars
-  for (const key of Object.keys(env)) {
-    if (key.startsWith("CLAUDECODE")) delete env[key];
-  }
-  return env;
-}
-
-// Strip our own env on startup so checks like claudeBin() work too
-for (const key of Object.keys(process.env)) {
-  if (key.startsWith("CLAUDECODE") || key === "CLAUDE_CODE_ENTRY" || key === "CLAUDE_CODE_SESSION") {
-    delete process.env[key];
-  }
-}
-
-async function checkOnline() {
-  // Cache for 60s
-  if (onlineStatus && Date.now() - onlineStatus.checkedAt < 60_000) {
-    return onlineStatus.online;
-  }
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    await fetch("https://api.anthropic.com", {
-      method: "HEAD",
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    onlineStatus = { online: true, checkedAt: Date.now() };
-    return true;
-  } catch {
-    onlineStatus = { online: false, checkedAt: Date.now() };
-    return false;
-  }
-}
+// Strip Claude Code session env vars on startup
+stripSessionEnv();
 
 /** Forward an OpenAI-compatible chat request to Ollama */
 async function forwardToOllama(messages, stream = false) {
@@ -301,147 +241,7 @@ function readBody(req) {
 // ── Claude CLI invocation ────────────────────────────────────────────────────
 
 function invokeClaude(opts) {
-  const {
-    prompt,
-    model = DEFAULT_MODEL,
-    workingDir,
-    systemPrompt,
-    allowedTools,
-    disallowedTools,
-    maxTurns,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    outputFormat = "json",
-    continueSession,
-    resumeSession,
-    addDirs,
-    permissionMode,
-    noSessionPersistence,
-    mcpConfig,
-    strictMcpConfig,
-    captureRawOutput = false, // return raw stdout in result for tool-trace collection
-  } = opts;
-
-  const jobId = randomUUID();
-
-  return (async () => {
-    await claudeLimiter.acquire();
-    return new Promise((resolveJob, rejectJob) => {
-    const args = ["-p", prompt, "--output-format", outputFormat];
-
-    // stream-json requires --verbose in newer Claude Code versions
-    if (outputFormat === "stream-json") args.push("--verbose");
-
-    if (model) args.push("--model", model);
-    if (systemPrompt) args.push("--system-prompt", systemPrompt);
-    if (maxTurns) args.push("--max-turns", String(maxTurns));
-    if (continueSession) args.push("--continue");
-    if (resumeSession) args.push("--resume", resumeSession);
-
-    if (allowedTools && allowedTools.length > 0) {
-      args.push("--allowedTools", ...allowedTools);
-    }
-
-    if (disallowedTools && disallowedTools.length > 0) {
-      args.push("--disallowed-tools", ...disallowedTools);
-    }
-
-    if (permissionMode) {
-      args.push("--permission-mode", permissionMode);
-    }
-
-    if (noSessionPersistence) {
-      args.push("--no-session-persistence");
-    }
-
-    if (mcpConfig) {
-      args.push("--mcp-config", mcpConfig);
-    }
-
-    if (strictMcpConfig) {
-      args.push("--strict-mcp-config");
-    }
-
-    if (addDirs && addDirs.length > 0) {
-      args.push("--add-dir", ...addDirs);
-    }
-
-    const cwd = workingDir || resolve(PROJECT_DIR, "workspace");
-
-    const child = spawn("claude", args, {
-      cwd,
-      env: cleanEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    activeJobs.set(jobId, {
-      process: child,
-      startedAt: Date.now(),
-      prompt: prompt.slice(0, 200),
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (d) => {
-      stdout += d.toString();
-    });
-    child.stderr.on("data", (d) => {
-      stderr += d.toString();
-    });
-
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      activeJobs.delete(jobId);
-      rejectJob(new Error(`Timed out after ${timeoutMs}ms`));
-    }, Math.min(timeoutMs, MAX_TIMEOUT_MS));
-
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      activeJobs.delete(jobId);
-      claudeLimiter.release();
-
-      if (code === 0) {
-        try {
-          const parsed = JSON.parse(stdout);
-          const result = {
-            jobId,
-            success: true,
-            result: parsed.result || parsed,
-            cost_usd: parsed.cost_usd,
-            duration_ms: parsed.duration_ms,
-            num_turns: parsed.num_turns,
-            session_id: parsed.session_id,
-            model: parsed.model,
-          };
-          if (captureRawOutput) result._rawOutput = stdout;
-          resolveJob(result);
-        } catch {
-          const result = {
-            jobId,
-            success: true,
-            result: stdout.trim(),
-            raw: true,
-          };
-          if (captureRawOutput) result._rawOutput = stdout;
-          resolveJob(result);
-        }
-      } else {
-        rejectJob(
-          new Error(
-            `claude exited with code ${code}${stderr ? ": " + stderr.trim() : ""}`
-          )
-        );
-      }
-    });
-
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      activeJobs.delete(jobId);
-      claudeLimiter.release();
-      rejectJob(err);
-    });
-  });
-  })();
+  return _invokeClaude(opts, claudeLimiter);
 }
 
 // ── HTTP Server ──────────────────────────────────────────────────────────────
@@ -818,7 +618,7 @@ const server = createServer(async (req, res) => {
       hasCode: /```/.test(lastUserMessage),
     });
 
-    console.log(`  stream=${body.stream} msgs=${messages.length} route=${routeResult.backend} score=${routeResult.score?.toFixed(2)} session=${sessionKey}`);
+    console.log(`  stream=${body.stream} msgs=${messages.length} route=${routeResult.backend} role=${routeResult.role} score=${routeResult.score?.toFixed(2)} session=${sessionKey}`);
 
     // ── Route to Ollama for light tasks (with agentic tool loop) ────
     if (routeResult.backend === "ollama") {
@@ -826,7 +626,7 @@ const server = createServer(async (req, res) => {
       try {
         const loopResult = await runToolLoop({
           prompt: lastUserMessage,
-          systemPrompt: systemPrompt !== ENGIE_SYSTEM_PREAMBLE ? systemPrompt : "",
+          systemPrompt: routeResult.systemPrompt || (systemPrompt !== ENGIE_SYSTEM_PREAMBLE ? systemPrompt : ""),
           model: "engie-coder:latest",
           maxIterations: 10,
           maxToolCalls: 25,

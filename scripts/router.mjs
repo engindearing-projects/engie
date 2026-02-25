@@ -7,12 +7,34 @@
 //   const router = new Router({ proxyUrl: "http://127.0.0.1:18791" });
 //   const backend = await router.route({ prompt, hints });
 
+import { classifyPrompt } from "../trainer/classify.mjs";
+
 const DEFAULT_PROXY_URL = "http://127.0.0.1:18791";
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const DEFAULT_LOCAL_MODEL = "engie-coder:latest";
 
+// Role-specific system prompts — one brain, different hats
+const ROLE_PROMPTS = {
+  coding: {
+    system: "You are Engie, an expert coding assistant built by Engindearing. Write clean, well-structured code with clear explanations.",
+    temperature: 0.7,
+  },
+  reasoning: {
+    system: "You are Engie, an expert at breaking down complex problems. Think step by step. When debugging, trace the issue from symptom to root cause. When planning, identify dependencies and risks. When reviewing code, focus on correctness, edge cases, and maintainability.",
+    temperature: 0.4,
+  },
+  tools: {
+    system: "You are Engie, an expert at navigating codebases and using tools. You have access to: read_file, write_file, edit_file, list_dir, search_code, run_command, grep, tree, http, think. Choose the right tool for each step. Chain tool calls when needed. Always explain what you're doing and why before calling a tool.",
+    temperature: 0.3,
+  },
+  chat: {
+    system: "You are Engie, a helpful project assistant. Keep responses concise and conversational. Summarize context clearly. Track project status, sprint progress, and team updates. When explaining technical concepts, use plain language.",
+    temperature: 0.7,
+  },
+};
+
 // Keywords / patterns that suggest a task needs the heavy brain
-const HEAVY_PATTERNS = [
+export const HEAVY_PATTERNS = [
   /\b(refactor|architect|design|implement|build|create|migrate)\b/i,
   /\b(debug|diagnose|investigate|analyze)\b/i,
   /\b(multi.?file|across files|codebase|repo)\b/i,
@@ -85,6 +107,24 @@ export class Router {
   }
 
   /**
+   * Classify the task role (coding/reasoning/tools/chat) and return
+   * the matching system prompt + temperature.
+   *
+   * @param {string} prompt
+   * @returns {{role: string, systemPrompt: string, temperature: number, confidence: number}}
+   */
+  classifyRole(prompt) {
+    const { type, confidence } = classifyPrompt(prompt);
+    const roleConfig = ROLE_PROMPTS[type] || ROLE_PROMPTS.chat;
+    return {
+      role: type,
+      systemPrompt: roleConfig.system,
+      temperature: roleConfig.temperature,
+      confidence,
+    };
+  }
+
+  /**
    * Score how "heavy" a task is (0.0 = light, 1.0 = heavy)
    *
    * @param {object} opts
@@ -151,6 +191,9 @@ export class Router {
   async route(opts) {
     const { prompt, hint, threshold = 0.6 } = opts;
 
+    // Classify the role for system prompt selection
+    const roleInfo = this.classifyRole(prompt);
+
     // Forced backend
     if (this.forceBackend) {
       return {
@@ -159,6 +202,7 @@ export class Router {
         score: -1,
         claudeAvailable: this.forceBackend === "claude",
         ollamaAvailable: this.forceBackend === "ollama",
+        ...roleInfo,
       };
     }
 
@@ -170,15 +214,16 @@ export class Router {
     const score = this.scoreComplexity(opts);
     const wantsClaude = score >= threshold;
 
+    const base = { localModel: this.localModel, score, ...roleInfo };
+
     // Both available — use score
     if (claudeUp && ollamaUp) {
       return {
+        ...base,
         backend: wantsClaude ? "claude" : "ollama",
-        localModel: this.localModel,
         reason: wantsClaude
           ? `complexity ${score.toFixed(2)} >= ${threshold} threshold`
           : `complexity ${score.toFixed(2)} < ${threshold} threshold (→ ${this.localModel})`,
-        score,
         claudeAvailable: true,
         ollamaAvailable: true,
       };
@@ -187,10 +232,9 @@ export class Router {
     // Only Claude available
     if (claudeUp && !ollamaUp) {
       return {
+        ...base,
         backend: "claude",
-        localModel: this.localModel,
         reason: "ollama unavailable, using claude",
-        score,
         claudeAvailable: true,
         ollamaAvailable: false,
       };
@@ -199,10 +243,9 @@ export class Router {
     // Only Ollama available (offline mode)
     if (!claudeUp && ollamaUp) {
       return {
+        ...base,
         backend: "ollama",
-        localModel: this.localModel,
         reason: `claude unavailable (offline?), falling back to ${this.localModel}`,
-        score,
         claudeAvailable: false,
         ollamaAvailable: true,
       };
@@ -210,10 +253,9 @@ export class Router {
 
     // Nothing available
     return {
+      ...base,
       backend: "ollama",
-      localModel: this.localModel,
       reason: "no backends reachable",
-      score,
       claudeAvailable: false,
       ollamaAvailable: false,
     };
@@ -289,4 +331,5 @@ export class Router {
   }
 }
 
+export { ROLE_PROMPTS };
 export default Router;

@@ -3,15 +3,17 @@
 // Run standalone: bun cron/telegram-push.mjs
 // Or schedule via launchd every 30 minutes.
 
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = resolve(__dirname, "../config/openclaw.json");
+const CONFIG_PATH = existsSync(resolve(__dirname, "../config/cozyterm.json"))
+  ? resolve(__dirname, "../config/cozyterm.json")
+  : resolve(__dirname, "../config/openclaw.json");
 const ACTIVITY_URL = process.env.ACTIVITY_URL || "http://localhost:18790";
 
-// Read bot token from openclaw.json (same source as gateway)
+// Read bot token from gateway config (same source as gateway)
 let BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 let CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
@@ -20,7 +22,7 @@ if (!BOT_TOKEN) {
     const cfg = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
     BOT_TOKEN = cfg.channels?.telegram?.botToken;
   } catch (e) {
-    console.error("Failed to read openclaw.json:", e.message);
+    console.error("Failed to read gateway config:", e.message);
   }
 }
 
@@ -43,7 +45,7 @@ if (!CHAT_ID) {
 
 if (!BOT_TOKEN || !CHAT_ID) {
   console.error("Could not resolve Telegram bot token or chat ID");
-  console.error("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars, or ensure openclaw.json is configured");
+  console.error("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars, or ensure gateway config is set up");
   process.exit(1);
 }
 

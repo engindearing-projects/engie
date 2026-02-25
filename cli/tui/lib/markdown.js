@@ -1,34 +1,37 @@
 // Markdown rendering for assistant messages
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
-import { colors } from "./theme.js";
+import { NO_COLOR } from "./theme.js";
 
-marked.use(
-  markedTerminal({
-    // Code blocks
-    code: { style: "dim" },
-    // Inline code
-    codespan: { style: "cyan" },
-    // Headings
-    heading: { style: "bold" },
-    // Links
-    href: { style: "cyan,underline" },
-    // Tables
-    tableOptions: {
-      style: { head: ["cyan"] },
-    },
-    // General
-    showSectionPrefix: false,
-    reflowText: true,
-    width: process.stdout.columns ? Math.min(process.stdout.columns - 4, 120) : 100,
-  })
-);
+if (!NO_COLOR) {
+  marked.use(
+    markedTerminal({
+      // Code blocks
+      code: { style: "dim" },
+      // Inline code
+      codespan: { style: "cyan" },
+      // Headings
+      heading: { style: "bold" },
+      // Links
+      href: { style: "cyan,underline" },
+      // Tables
+      tableOptions: {
+        style: { head: ["cyan"] },
+      },
+      // General
+      showSectionPrefix: false,
+      reflowText: true,
+      width: process.stdout.columns ? Math.min(process.stdout.columns - 4, 120) : 100,
+    })
+  );
+}
 
 /**
  * Render completed markdown text to ANSI terminal output.
  */
 export function renderMarkdown(text) {
   if (!text) return "";
+  if (NO_COLOR) return text;
   try {
     return marked.parse(text).trimEnd();
   } catch {
@@ -42,6 +45,7 @@ export function renderMarkdown(text) {
  */
 export function renderMarkdownSafe(text) {
   if (!text) return "";
+  if (NO_COLOR) return text;
   try {
     let safe = text;
     // Count backtick fences (``` lines)
