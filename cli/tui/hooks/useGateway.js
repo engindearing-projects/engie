@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { extractAndStore } from "../../lib/extract-observations.js";
-import { injectContext } from "../../lib/memory-context.js";
 import { extractSuggestions, stripSuggestions } from "../lib/extract-suggestions.js";
 
 const ACTIVITY_URL = `http://localhost:${process.env.ACTIVITY_PORT || 18790}`;
@@ -219,17 +218,18 @@ export function useGateway(gw, sessionKey, coachMode = false) {
       ]);
 
       try {
-        // Inject recent memory context as prefix — fails silently if DB unavailable
-        let messageWithContext = await injectContext(text);
+        // Memory context is now injected server-side by the gateway (reasoning role only).
+        // No client-side injection — keeps the raw message clean for accurate classification.
+        let messageToSend = text;
 
         // Prepend coaching context when coaching mode is active
         if (coachMode) {
-          messageWithContext =
+          messageToSend =
             "[Coaching mode ON. Be warm, patient, encouraging. Explain in plain language first, use analogies. End with SUGGESTIONS: [\"cmd1\", \"cmd2\", ...]]\n\n" +
-            messageWithContext;
+            messageToSend;
         }
 
-        await gw.chat(sessionKey, messageWithContext);
+        await gw.chat(sessionKey, messageToSend);
         // Response arrives via agent/chat events
       } catch (err) {
         setError(err.message);

@@ -33,7 +33,7 @@ export const colors = {
 export const NO_COLOR = !!process.env.NO_COLOR || process.env.TERM === "dumb";
 export const NARROW = (process.stdout.columns || 80) < 60;
 
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 
 /**
  * Time-of-day greeting.

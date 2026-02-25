@@ -14,7 +14,7 @@
 
 import chalk from "chalk";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 
 const HELP = `
   ${chalk.bold("engie")} v${VERSION} — AI project manager CLI

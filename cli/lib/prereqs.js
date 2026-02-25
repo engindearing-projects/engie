@@ -57,7 +57,7 @@ export function checkGateway() {
   try {
     const output = tryExec("curl -s -o /dev/null -w '%{http_code}' http://localhost:18789/health");
     const healthy = output === "200";
-    return { name: "Gateway", installed: healthy, version: healthy ? "0.5.0" : null };
+    return { name: "Gateway", installed: healthy, version: healthy ? "0.6.0" : null };
   } catch {
     return { name: "Gateway", installed: false, version: null };
   }
