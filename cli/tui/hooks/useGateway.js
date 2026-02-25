@@ -140,20 +140,21 @@ export function useGateway(gw, sessionKey, coachMode = false) {
           finalCountRef.current++;
 
           const msgId = `a-${++msgCounter}`;
-          setMessages((prev) => [
-            ...prev,
-            { id: msgId, role, text: cleanText },
-          ]);
 
-          // Summarize thought messages via local Ollama (fire-and-forget)
           if (role === "thought") {
+            // Summarize via Ollama BEFORE adding to Static messages
+            // (Ink's Static component only renders items once)
             summarizeThought(cleanText).then((summary) => {
-              if (summary && summary !== cleanText) {
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === msgId ? { ...m, text: summary } : m))
-                );
-              }
+              setMessages((prev) => [
+                ...prev,
+                { id: msgId, role, text: summary },
+              ]);
             });
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              { id: msgId, role, text: cleanText },
+            ]);
           }
         }
 
