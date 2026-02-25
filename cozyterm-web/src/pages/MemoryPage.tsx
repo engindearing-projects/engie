@@ -168,16 +168,13 @@ export default function MemoryPage() {
 
     return (
       <div className={styles.emptyState}>
-        <span className={styles.emptyEmoji} role="img" aria-label="brain">
-          🧠
-        </span>
         <span className={styles.emptyTitle} style={{ color: colors.white }}>
-          Engie's Memory
+          Memory
         </span>
         <span className={styles.emptyDesc} style={{ color: colors.gray }}>
           {hasSearched
-            ? 'No results found. Try a different search or preset.'
-            : 'Browse what Engie knows. Tap a preset above or search for something specific.'}
+            ? 'No results. Try a different search or preset.'
+            : 'Search observations, decisions, and blockers. Use the presets above or type a query.'}
         </span>
       </div>
     );
