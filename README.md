@@ -48,6 +48,7 @@ cozy
 Opens the Ink-based terminal UI with:
 - Breathing iris pulse indicator (alive = gateway connected)
 - Context-aware banner showing today's observations and active tickets
+- Toggleable task panel (Shift+Tab) — shows active tool calls, todos, and recent observations
 - Rotating tips for commands and recent activity
 - Markdown-rendered assistant responses (from Engie)
 - Service health status bar
@@ -94,6 +95,11 @@ cozy observe task_update "Finished API integration" --project myapp --tag PROJ-4
 
 # Save a quick note in the TUI
 /observe need to follow up on IAM permissions
+
+# Manage todos (visible in shift+tab task panel)
+/todo add fix auth timeout on /login
+/todo                              # list all todos
+/todo done obs_a1b2c3d4            # mark done (removes it)
 ```
 
 ### TUI Slash Commands
@@ -103,6 +109,7 @@ cozy observe task_update "Finished API integration" --project myapp --tag PROJ-4
 | `/help` | Show all available commands |
 | `/memory [query]` | Search memory (no query = show recent) |
 | `/observe <text>` | Save an observation to memory |
+| `/todo [add\|done]` | Manage todo items (visible in task panel) |
 | `/status` | Inline service health check |
 | `/session` | Show current session key |
 | `/clear` | Clear message history |
@@ -306,6 +313,7 @@ cozyterm/
 │       ├── lib/theme.js            #   Colors, version, branding
 │       ├── components/             #   UI components
 │       │   ├── Banner.js           #     Iris pulse + context + tips
+│       │   ├── TaskPanel.js       #     Shift+Tab task/todo/observation panel
 │       │   ├── StatusBar.js        #     Service health indicators
 │       │   ├── InputPrompt.js      #     Message input
 │       │   ├── MessageHistory.js   #     Scrollable message list

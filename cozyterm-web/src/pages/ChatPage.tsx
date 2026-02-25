@@ -14,7 +14,7 @@ import styles from './ChatPage.module.css';
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
   role: 'assistant',
-  text: "Hey! I'm Engie \u2014 your AI project manager. Tell me about yourself: what's your role, what do you work on, and how you'd like me to help. I'll remember everything.",
+  text: "Hey! I'm Engie \u2014 your AI project manager. Tell me about yourself: what's your role, what do you work on, and how you'd like me to help. I'll remember everything.\n\nIf you're using the terminal, try shift+tab to open the task panel, or /todo to track your work.",
   timestamp: 0,
 };
 
