@@ -44,6 +44,7 @@ export function useGateway(gw, sessionKey, coachMode = false) {
   const accumulatedRef = useRef("");
   const lastUserMsgRef = useRef("");
   const responseStartRef = useRef(null);
+  const finalCountRef = useRef(0);
 
   // Subscribe to gateway events
   useEffect(() => {
@@ -133,9 +134,13 @@ export function useGateway(gw, sessionKey, coachMode = false) {
           const cleanText = chips.length > 0 ? stripSuggestions(finalText) : finalText;
           setSuggestions(chips);
 
+          // First final = normal assistant message, subsequent = thought
+          const role = finalCountRef.current === 0 ? "assistant" : "thought";
+          finalCountRef.current++;
+
           setMessages((prev) => [
             ...prev,
-            { id: `a-${++msgCounter}`, role: "assistant", text: cleanText },
+            { id: `a-${++msgCounter}`, role, text: cleanText },
           ]);
         }
 
@@ -210,6 +215,7 @@ export function useGateway(gw, sessionKey, coachMode = false) {
       setToolEvents([]);
       lastUserMsgRef.current = text;
       responseStartRef.current = Date.now();
+      finalCountRef.current = 0;
 
       // Add user message to history (show raw text, not context-injected)
       setMessages((prev) => [

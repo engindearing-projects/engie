@@ -3,6 +3,7 @@ import { Static } from "ink";
 import { UserMessage } from "./UserMessage.js";
 import { AssistantMessage } from "./AssistantMessage.js";
 import { SystemMessage } from "./SystemMessage.js";
+import { ThoughtMessage } from "./ThoughtMessage.js";
 
 const e = React.createElement;
 
@@ -14,6 +15,9 @@ export function MessageHistory({ messages }) {
       }
       if (msg.role === "system") {
         return e(SystemMessage, { key: msg.id, text: msg.text });
+      }
+      if (msg.role === "thought") {
+        return e(ThoughtMessage, { key: msg.id, text: msg.text });
       }
       return e(AssistantMessage, { key: msg.id, text: msg.text });
     }
