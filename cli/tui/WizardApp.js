@@ -4,9 +4,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Text, useApp } from "ink";
 import { TextInput, ConfirmInput } from "@inkjs/ui";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, appendFileSync } from "fs";
 import { execSync } from "child_process";
-import { resolve } from "path";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 import { colors } from "./lib/theme.js";
 import { WelcomeScreen } from "./components/WelcomeScreen.js";
@@ -46,6 +50,7 @@ const e = React.createElement;
 
 const STEP_DEFS = [
   { id: "system_check", label: "System check" },
+  { id: "global_command", label: "Global command" },
   { id: "openclaw", label: "OpenClaw" },
   { id: "ollama", label: "Ollama" },
   { id: "claude", label: "Claude Code" },
@@ -228,6 +233,8 @@ export function WizardApp() {
     // Auto-run steps that need no input
     if (stepDef.id === "system_check" && phase === "init") {
       runSystemCheck();
+    } else if (stepDef.id === "global_command" && phase === "init") {
+      runGlobalCommand();
     } else if (stepDef.id === "openclaw" && phase === "init") {
       runOpenclawCheck();
     } else if (stepDef.id === "ollama" && phase === "init") {
@@ -269,6 +276,63 @@ export function WizardApp() {
       }
 
       completeStep("system_check", parts.join(", "));
+      advanceToNext();
+    }, 300);
+  }
+
+  function runGlobalCommand() {
+    setTimeout(() => {
+      // Check if engie is already on PATH
+      const existing = whichSync("engie");
+      if (existing) {
+        completeStep("global_command", existing);
+        advanceToNext();
+        return;
+      }
+
+      // Try npm link first (puts binaries in /opt/homebrew/bin/ or /usr/local/bin/)
+      updateStep("global_command", { status: "active", detail: "linking via npm..." });
+      const cliDir = resolve(__dirname, "..");
+      const npmResult = tryExec(`npm link`, { timeout: 30000, cwd: cliDir });
+      if (npmResult !== null) {
+        const check = whichSync("engie");
+        if (check) {
+          completeStep("global_command", check);
+          advanceToNext();
+          return;
+        }
+      }
+
+      // Fallback: bun link (puts binaries in ~/.bun/bin/)
+      const bunResult = tryExec(`bun link`, { timeout: 30000, cwd: cliDir });
+      if (bunResult !== null) {
+        const bunBin = resolve(process.env.HOME || "/tmp", ".bun", "bin");
+        const check = whichSync("engie");
+        if (check) {
+          completeStep("global_command", check);
+        } else {
+          // engie is in ~/.bun/bin but not on PATH — add to shell profile
+          const shell = process.env.SHELL || "/bin/zsh";
+          const profileFile = shell.includes("zsh")
+            ? resolve(process.env.HOME || "/tmp", ".zshrc")
+            : resolve(process.env.HOME || "/tmp", ".bashrc");
+          const exportLine = `export PATH="${bunBin}:$PATH"`;
+
+          try {
+            const profileContent = existsSync(profileFile) ? readFileSync(profileFile, "utf-8") : "";
+            if (!profileContent.includes(".bun/bin")) {
+              appendFileSync(profileFile, `\n# Added by engie init\n${exportLine}\n`, "utf-8");
+              completeStep("global_command", `added ~/.bun/bin to ${profileFile.split("/").pop()}`);
+            } else {
+              completeStep("global_command", `~/.bun/bin (already in ${profileFile.split("/").pop()})`);
+            }
+          } catch {
+            completeStep("global_command", `~/.bun/bin (add to PATH manually)`);
+          }
+        }
+      } else {
+        failStep("global_command", "could not link — run npm link from cli/ manually");
+      }
       advanceToNext();
     }, 300);
   }
@@ -459,11 +523,21 @@ export function WizardApp() {
       return;
     }
 
-    updateStep("mcp_bridge", { status: "active", detail: "registering with claude..." });
+    updateStep("mcp_bridge", { status: "active", detail: "installing dependencies..." });
 
     setTimeout(() => {
       try {
-        const bridgePath = resolve(engieHome(), "mcp-bridge", "index.mjs");
+        // Auto-install mcp-bridge npm dependencies
+        const repoRoot = resolve(__dirname, "../..");
+        const bridgeDir = resolve(repoRoot, "mcp-bridge");
+        if (existsSync(resolve(bridgeDir, "package.json"))) {
+          const npmBin = whichSync("npm") || "npm";
+          tryExec(`"${npmBin}" install`, { timeout: 60000, cwd: bridgeDir });
+        }
+
+        updateStep("mcp_bridge", { status: "active", detail: "registering with claude..." });
+
+        const bridgePath = resolve(repoRoot, "mcp-bridge", "index.mjs");
         const bunPath = whichSync("bun") || "bun";
 
         // Remove existing registration first (ignore errors)
@@ -744,7 +818,7 @@ export function WizardApp() {
       ? e(Box, { flexDirection: "column", marginTop: 1, marginLeft: 2 },
           e(Text, null, ""),
           e(Text, { color: colors.green, bold: true }, "Setup complete!"),
-          e(Text, { color: colors.gray }, "Run `cozy` to start chatting.")
+          e(Text, { color: colors.gray }, "Run `engie` to start chatting.")
         )
       : null
   );

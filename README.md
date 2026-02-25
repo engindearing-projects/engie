@@ -23,17 +23,15 @@ Heavy tasks (refactoring, multi-file edits, debugging) go through Claude Code us
 # Install Bun if you don't have it
 brew install oven-sh/bun/bun
 
-# Install the CLI
-cd cli && bun install && bun link
-
-# Install MCP bridge deps
-cd ../mcp-bridge && npm install
+# Clone and install
+git clone https://github.com/engindearing-projects/engie.git
+cd engie/cli && bun install
 
 # Run the setup wizard — it handles the rest
-engie init
+bun run bin/cozy.mjs init
 ```
 
-The wizard installs Ollama, generates configs, sets up launchd services, and verifies everything connects.
+The wizard sets up the global `engie` command, installs Ollama, generates configs, installs MCP bridge dependencies, starts launchd services, and verifies everything connects.
 
 ---
 
