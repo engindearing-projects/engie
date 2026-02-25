@@ -2,7 +2,7 @@
 
 An AI assistant that lives in your terminal. It tracks your projects across Jira and GitHub, remembers what you've been working on, sends you morning briefs over Telegram, and handles coding tasks by routing them to either Claude or a local Ollama model depending on complexity.
 
-Built on [OpenClaw](https://github.com/open-claw/open-claw) + Bun. Runs natively on macOS with Apple Silicon GPU acceleration for local inference.
+Built with Bun. Runs natively on macOS with Apple Silicon GPU acceleration for local inference. Custom-built gateway — no third-party agent framework.
 
 Heavy tasks (refactoring, multi-file edits, debugging) go through Claude Code using your existing Claude Pro/Max subscription — no extra API spend. Quick stuff (status checks, summaries, standups) runs locally on Ollama for free.
 
@@ -33,7 +33,7 @@ cd ../mcp-bridge && npm install
 cozy init
 ```
 
-The wizard installs OpenClaw, generates configs, sets up launchd services, and verifies everything connects.
+The wizard installs Ollama, generates configs, sets up launchd services, and verifies everything connects.
 
 ---
 
@@ -151,7 +151,7 @@ Everything runs as launchd services and auto-starts on boot:
 
 | Service | Port | What it does |
 |---------|------|-------------|
-| OpenClaw Gateway | 18789 | Agent framework, WebSocket API |
+| Gateway | 18789 | Custom WebSocket API |
 | Claude Code Proxy | 18791 | Routes heavy tasks through `claude` CLI |
 | Activity Sync | 18790 | Cross-platform activity ledger |
 | Ollama | 11434 | Local LLM on Metal GPU |
@@ -163,7 +163,7 @@ Everything runs as launchd services and auto-starts on boot:
 Config lives in `~/.cozyterm/`. Copy the example config to get started:
 
 ```bash
-cp config/openclaw.json.example ~/.openclaw/openclaw.json
+cp config/gateway.json.example ~/.cozyterm/config/gateway.json
 ```
 
 Fill in your Telegram bot token, gateway auth token, and optionally Slack credentials.
@@ -172,7 +172,7 @@ Key files:
 
 | File | Purpose |
 |------|---------|
-| `~/.cozyterm/config/openclaw.json` | Gateway config |
+| `~/.cozyterm/config/gateway.json` | Gateway config |
 | `~/.cozyterm/config/.env` | API keys (never committed) |
 | `~/.cozyterm/profile/user.json` | Your name, role, org |
 | `~/.cozyterm/memory/cozyterm.db` | Memory database |
@@ -198,7 +198,7 @@ Override the home directory with `COZYTERM_HOME` env var.
 |---|---|
 | **Runtime** | Bun (CLI), Node (MCP bridge) |
 | **TUI** | Ink 5 + React 18 |
-| **Agent framework** | OpenClaw |
+| **Gateway** | Custom WebSocket server |
 | **Local LLM** | Ollama (Metal GPU) |
 | **Heavy tasks** | Claude Code CLI (uses your subscription) |
 | **Memory** | SQLite + FTS5 |
