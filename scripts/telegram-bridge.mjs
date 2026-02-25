@@ -15,6 +15,8 @@ import { findConfig, logsDir, cozyHome } from "../cli/lib/paths.js";
 import { historyGet, historyAppend } from "../cli/lib/chat-memory.js";
 import { classifyPrompt } from "../trainer/classify.mjs";
 import { Database } from "bun:sqlite";
+import { getWorkItem, updateWorkItem } from "../shared/work-queue.js";
+import { answerCallbackQuery as answerCb, updateApprovalMessage } from "./daemon-telegram.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
@@ -1144,11 +1146,69 @@ async function handleTelegramMessage(msg) {
 
 }
 
+// ── Daemon callback query handler ─────────────────────────────────────────
+
+async function handleCallbackQuery(query) {
+  const data = query.data || "";
+  const parts = data.split(":");
+
+  // Only handle daemon callbacks (format: daemon:action:itemId)
+  if (parts[0] !== "daemon" || parts.length < 3) return;
+
+  const action = parts[1];
+  const itemId = parts.slice(2).join(":"); // UUID may not contain ":", but be safe
+  const userName = query.from?.first_name || query.from?.username || "user";
+
+  // Answer immediately (Telegram requires within 10s)
+  try {
+    await answerCb(query.id, `${action === "approve" ? "Approved" : action === "skip" ? "Skipped" : "Deferred 1h"}`);
+  } catch (e) {
+    console.error("answerCallbackQuery failed:", e.message);
+  }
+
+  const item = getWorkItem(itemId);
+  if (!item) {
+    console.error(`Callback for unknown work item: ${itemId}`);
+    return;
+  }
+
+  const chatId = String(query.message?.chat?.id || item.approval_chat_id);
+  const msgId = query.message?.message_id || item.approval_msg_id;
+  const shortId = itemId.slice(0, 8);
+
+  if (action === "approve") {
+    updateWorkItem(itemId, { status: "approved", approved_by: userName });
+    if (chatId && msgId) {
+      await updateApprovalMessage(chatId, msgId,
+        `✅ *Approved* by ${userName} [${shortId}]\n\n${item.proposed_action || "—"}`
+      );
+    }
+    console.log(`Work item ${shortId} approved by ${userName}`);
+  } else if (action === "skip") {
+    updateWorkItem(itemId, { status: "rejected" });
+    if (chatId && msgId) {
+      await updateApprovalMessage(chatId, msgId,
+        `⏭ *Skipped* by ${userName} [${shortId}]`
+      );
+    }
+    console.log(`Work item ${shortId} skipped by ${userName}`);
+  } else if (action === "defer") {
+    const deferUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    updateWorkItem(itemId, { status: "deferred", defer_until: deferUntil });
+    if (chatId && msgId) {
+      await updateApprovalMessage(chatId, msgId,
+        `⏰ *Deferred 1h* by ${userName} [${shortId}]\nWill re-propose after ${new Date(deferUntil).toLocaleTimeString()}`
+      );
+    }
+    console.log(`Work item ${shortId} deferred 1h by ${userName}`);
+  }
+}
+
 async function pollTelegram() {
   const url = new URL(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`);
   url.searchParams.set("offset", String(state.offset || 0));
   url.searchParams.set("timeout", String(TG_LONG_POLL));
-  url.searchParams.set("allowed_updates", JSON.stringify(["message"]));
+  url.searchParams.set("allowed_updates", JSON.stringify(["message", "callback_query"]));
 
   const res = await fetch(url.toString(), { signal: AbortSignal.timeout((TG_LONG_POLL + 5) * 1000) });
   const data = await res.json();
@@ -1162,6 +1222,13 @@ async function pollTelegram() {
         await handleTelegramMessage(update.message);
       } catch (e) {
         console.error("handleTelegramMessage error:", e?.stack || e?.message || String(e));
+      }
+    }
+    if (update.callback_query) {
+      try {
+        await handleCallbackQuery(update.callback_query);
+      } catch (e) {
+        console.error("handleCallbackQuery error:", e?.stack || e?.message || String(e));
       }
     }
   }

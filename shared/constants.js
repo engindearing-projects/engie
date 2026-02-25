@@ -8,6 +8,7 @@ export const DEFAULT_ACTIVITY_PORT = 18790;
 export const DEFAULT_OLLAMA_PORT = 11434;
 
 export const SESSION_KEY = "agent:engie:cli";
+export const DAEMON_SESSION_KEY = "agent:engie:daemon";
 export const MOBILE_SESSION_KEY = "main";
 
 export const SERVICE_NAMES = {
@@ -15,6 +16,7 @@ export const SERVICE_NAMES = {
   claudeProxy: "com.cozyterm.claude-proxy",
   activitySync: "com.cozyterm.activity-sync",
   telegramPush: "com.cozyterm.telegram-push",
+  daemon: "com.engie.daemon",
   ollama: "homebrew.mxcl.ollama",
 };
 
@@ -36,6 +38,7 @@ export const CONNECT_TIMEOUT_MS = 15_000;
 export const REQUEST_TIMEOUT_MS = 10_000;
 export const RECONNECT_BASE_MS = 1_000;
 export const RECONNECT_MAX_MS = 30_000;
+export const DAEMON_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes between daemon actions
 
 // Observation types for the memory system
 export const OBSERVATION_TYPES = [

@@ -4,6 +4,7 @@ import { extractSuggestions, stripSuggestions } from "../lib/extract-suggestions
 import { summarizeThought } from "../lib/summarize-thought.js";
 
 const ACTIVITY_URL = `http://localhost:${process.env.ACTIVITY_PORT || 18790}`;
+const MAX_QUEUE = 10;
 
 function logActivityQuiet(role, content, sessionKey = "agent:engie:main") {
   fetch(`${ACTIVITY_URL}/activity`, {
@@ -19,16 +20,7 @@ let msgCounter = 0;
 /**
  * Bridge: GatewayClient EventEmitter → React state.
  *
- * Returns { messages, streamText, busy, connected, error, sendMessage, toolStage, lastMeta }
- *
- * - messages: completed message pairs [{id, role, text}]
- * - streamText: current in-progress assistant text (or "")
- * - busy: whether a request is in flight
- * - connected: gateway connection state
- * - error: last error message (or null)
- * - sendMessage(text): send a user message
- * - toolStage: current tool name being executed (or null)
- * - lastMeta: { model, durationMs } from last response (or null)
+ * Returns { messages, streamText, busy, connected, error, sendMessage, toolStage, lastMeta, queueLength }
  */
 export function useGateway(gw, sessionKey, coachMode = false) {
   const [messages, setMessages] = useState([]);
@@ -40,6 +32,11 @@ export function useGateway(gw, sessionKey, coachMode = false) {
   const [toolStage, setToolStage] = useState(null);
   const [toolEvents, setToolEvents] = useState([]);
   const [lastMeta, setLastMeta] = useState(null);
+  const [queueLength, setQueueLength] = useState(0);
+
+  // Input queue — messages typed while busy
+  const queueRef = useRef([]);
+  const drainQueueRef = useRef(null);
 
   // Track accumulated text for delta diffing (same approach as repl.mjs)
   const accumulatedRef = useRef("");
@@ -176,19 +173,31 @@ export function useGateway(gw, sessionKey, coachMode = false) {
 
         setStreamText("");
         accumulatedRef.current = "";
-        setBusy(false);
         setToolStage(null);
         setError(null);
         responseStartRef.current = null;
+
+        // If queue has items, drain next WITHOUT setting busy=false
+        // (prevents auto-continuation from firing during the gap)
+        if (queueRef.current.length > 0 && drainQueueRef.current) {
+          drainQueueRef.current();
+        } else {
+          setBusy(false);
+        }
       }
 
       if (payload.state === "error") {
         setError(payload.errorMessage || "Unknown error");
         setStreamText("");
         accumulatedRef.current = "";
-        setBusy(false);
         setToolStage(null);
         responseStartRef.current = null;
+
+        if (queueRef.current.length > 0 && drainQueueRef.current) {
+          drainQueueRef.current();
+        } else {
+          setBusy(false);
+        }
       }
     }
 
@@ -216,9 +225,10 @@ export function useGateway(gw, sessionKey, coachMode = false) {
     };
   }, [gw, sessionKey]);
 
-  const sendMessage = useCallback(
-    async (text) => {
-      if (!text || busy) return;
+  // Core send — dispatches to gateway. skipHistory=true when draining queue (message already shown)
+  const sendMessageDirect = useCallback(
+    async (text, { skipHistory = false } = {}) => {
+      if (!text) return;
 
       setError(null);
       setBusy(true);
@@ -231,18 +241,16 @@ export function useGateway(gw, sessionKey, coachMode = false) {
       responseStartRef.current = Date.now();
       finalCountRef.current = 0;
 
-      // Add user message to history (show raw text, not context-injected)
-      setMessages((prev) => [
-        ...prev,
-        { id: `u-${++msgCounter}`, role: "user", text },
-      ]);
+      if (!skipHistory) {
+        setMessages((prev) => [
+          ...prev,
+          { id: `u-${++msgCounter}`, role: "user", text },
+        ]);
+      }
 
       try {
-        // Memory context is now injected server-side by the gateway (reasoning role only).
-        // No client-side injection — keeps the raw message clean for accurate classification.
         let messageToSend = text;
 
-        // Prepend coaching context when coaching mode is active
         if (coachMode) {
           messageToSend =
             "[Coaching mode ON. Be warm, patient, encouraging. Explain in plain language first, use analogies. End with SUGGESTIONS: [\"cmd1\", \"cmd2\", ...]]\n\n" +
@@ -250,7 +258,6 @@ export function useGateway(gw, sessionKey, coachMode = false) {
         }
 
         await gw.chat(sessionKey, messageToSend);
-        // Response arrives via agent/chat events
       } catch (err) {
         setError(err.message);
         setBusy(false);
@@ -258,8 +265,62 @@ export function useGateway(gw, sessionKey, coachMode = false) {
         responseStartRef.current = null;
       }
     },
-    [gw, sessionKey, busy]
+    [gw, sessionKey, coachMode]
   );
 
-  return { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions, toolStage, toolEvents, lastMeta };
+  // Drain next queued message after a response completes
+  const drainQueue = useCallback(() => {
+    if (queueRef.current.length === 0) return;
+    const next = queueRef.current.shift();
+    setQueueLength(queueRef.current.length);
+
+    // Promote the queued message role from "queued" to "user" in history
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === next.msgId ? { ...m, role: "user" } : m
+      )
+    );
+
+    // Send directly — message is already in the history list
+    // No delay needed since we never set busy=false during drain
+    sendMessageDirect(next.text, { skipHistory: true });
+  }, [sendMessageDirect]);
+
+  // Keep ref in sync so the effect closure always calls the latest version
+  drainQueueRef.current = drainQueue;
+
+  // Public send — queues if busy
+  const sendMessage = useCallback(
+    (text) => {
+      if (!text) return;
+
+      if (!busy) {
+        sendMessageDirect(text);
+        return;
+      }
+
+      // Queue is full — drop with system message
+      if (queueRef.current.length >= MAX_QUEUE) {
+        setMessages((prev) => [
+          ...prev,
+          { id: `s-${++msgCounter}`, role: "system", text: `Queue full (${MAX_QUEUE}) — message dropped` },
+        ]);
+        return;
+      }
+
+      // Add to queue
+      const msgId = `q-${++msgCounter}`;
+      queueRef.current.push({ text, msgId });
+      setQueueLength(queueRef.current.length);
+
+      // Show queued message in history
+      setMessages((prev) => [
+        ...prev,
+        { id: msgId, role: "queued", text },
+      ]);
+    },
+    [busy, sendMessageDirect]
+  );
+
+  return { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions, toolStage, toolEvents, lastMeta, queueLength };
 }

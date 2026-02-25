@@ -100,7 +100,7 @@ function nextPhrase(currentIdx) {
   return (currentIdx + 1) % IDLE_PHRASES.length;
 }
 
-export function StreamingMessage({ text, busy, toolStage, dynamicStatus }) {
+export function StreamingMessage({ text, busy, toolStage, dynamicStatus, continuing }) {
   const [rendered, setRendered] = useState("");
   const timerRef = useRef(null);
   const latestTextRef = useRef("");
@@ -156,6 +156,15 @@ export function StreamingMessage({ text, busy, toolStage, dynamicStatus }) {
       }
     };
   }, []);
+
+  // Continuing indicator — shown between responses when auto-continuation is pending
+  if (continuing && !busy && !text) {
+    return e(Box, { flexDirection: "column", marginLeft: 2, marginTop: 1 },
+      e(Text, { color: colors.yellow, italic: true },
+        "continuing in a moment... (type to cancel)"
+      )
+    );
+  }
 
   // Not busy and no text — render nothing
   if (!busy && !text) return null;

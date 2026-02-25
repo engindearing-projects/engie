@@ -1,5 +1,6 @@
 import React from "react";
-import { Static } from "ink";
+import { Box, Static, Text } from "ink";
+import { colors } from "../lib/theme.js";
 import { UserMessage } from "./UserMessage.js";
 import { AssistantMessage } from "./AssistantMessage.js";
 import { SystemMessage } from "./SystemMessage.js";
@@ -13,6 +14,9 @@ export function MessageHistory({ messages }) {
       if (msg.role === "user") {
         return e(UserMessage, { key: msg.id, text: msg.text });
       }
+      if (msg.role === "queued") {
+        return e(QueuedMessage, { key: msg.id, text: msg.text });
+      }
       if (msg.role === "system") {
         return e(SystemMessage, { key: msg.id, text: msg.text });
       }
@@ -21,5 +25,14 @@ export function MessageHistory({ messages }) {
       }
       return e(AssistantMessage, { key: msg.id, text: msg.text });
     }
+  );
+}
+
+function QueuedMessage({ text }) {
+  return e(Box, { marginLeft: 2, marginTop: 1 },
+    e(Text, { color: colors.grayDim, dimColor: true }, "you"),
+    e(Text, { color: colors.grayDim, dimColor: true }, " > "),
+    e(Text, { color: colors.grayDim, dimColor: true }, text),
+    e(Text, { color: colors.yellow }, " (queued)")
   );
 }

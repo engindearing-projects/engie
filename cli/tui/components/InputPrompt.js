@@ -5,22 +5,23 @@ import { colors } from "../lib/theme.js";
 
 const e = React.createElement;
 
-export function InputPrompt({ value, onChange, onSubmit, disabled }) {
-  if (disabled) {
-    return e(Box, null,
-      e(Text, { color: colors.grayDim }, "  engie > "),
-      e(Text, { color: colors.grayDim }, "...")
-    );
-  }
+export function InputPrompt({ value, onChange, onSubmit, busy, queueLength = 0 }) {
+  const promptColor = busy ? colors.grayDim : colors.cyan;
+  const promptBold = !busy;
+  const placeholder = busy ? "Type to queue..." : "Type a message...";
 
   return e(Box, null,
-    e(Text, { color: colors.cyan, bold: true }, "  engie"),
+    // Queue badge
+    queueLength > 0
+      ? e(Text, { color: colors.yellow }, `  [${queueLength} queued] `)
+      : e(Text, null, "  "),
+    e(Text, { color: promptColor, bold: promptBold }, "engie"),
     e(Text, { color: colors.gray }, " > "),
     e(TextInput, {
       value,
       onChange,
       onSubmit,
-      placeholder: "Type a message...",
+      placeholder,
     })
   );
 }

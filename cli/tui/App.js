@@ -14,6 +14,8 @@ import { useInputHistory } from "./hooks/useInputHistory.js";
 import { useSlashCommands } from "./hooks/useSlashCommands.js";
 import { useServiceHealth } from "./hooks/useServiceHealth.js";
 import { useFileActivity } from "./hooks/useFileActivity.js";
+import { useAutoContinuation } from "./hooks/useAutoContinuation.js";
+import { useBackgroundPolling } from "./hooks/useBackgroundPolling.js";
 import { createStatusCycler } from "./lib/dynamic-status.js";
 
 const e = React.createElement;
@@ -24,13 +26,19 @@ export function App({ gateway, sessionKey, initialCoachMode = false }) {
   const [dynamicStatus, setDynamicStatus] = useState(null);
   const [showTasks, setShowTasks] = useState(false);
 
-  const { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions, toolStage, toolEvents, lastMeta } =
+  const { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions, toolStage, toolEvents, lastMeta, queueLength } =
     useGateway(gateway, sessionKey, coachMode);
 
   const { services } = useServiceHealth(connected);
 
   // File activity tracking (fs.watch + gateway tool events)
   const { files, summary, isCollapsed } = useFileActivity({ busy, toolEvents, watchRoot: process.cwd() });
+
+  // Auto-continuation — watches busy transitions, sends follow-up prompts
+  const { continuing, cancel: cancelContinuation, resetSuppression } = useAutoContinuation({ busy, queueLength, sendMessage });
+
+  // Background polling — surfaces blockers, stale todos as system messages
+  useBackgroundPolling({ connected, busy, setMessages });
 
   // Dynamic status messages from local Ollama
   const statusCyclerRef = useRef(createStatusCycler());
@@ -81,14 +89,26 @@ export function App({ gateway, sessionKey, initialCoachMode = false }) {
     async (text) => {
       setSuggestions([]);
       lastQueryRef.current = text;
+      // User explicitly submitted — re-enable auto-continuation for this new chain
+      resetSuppression();
       const handled = await handleCommand(text);
       if (handled) return;
       sendMessage(text);
     },
-    [handleCommand, sendMessage, setSuggestions]
+    [handleCommand, sendMessage, setSuggestions, resetSuppression]
   );
 
   const { value, setValue, onSubmit, handleKey } = useInputHistory(handleSubmit);
+
+  // Cancel auto-continuation when user types anything — even while response is in-flight.
+  // This suppresses the entire chain until the user explicitly submits again.
+  const handleChange = useCallback(
+    (newValue) => {
+      cancelContinuation();
+      setValue(newValue);
+    },
+    [cancelContinuation, setValue]
+  );
 
   // Arrow key history navigation
   useInput(handleKey);
@@ -105,15 +125,16 @@ export function App({ gateway, sessionKey, initialCoachMode = false }) {
     showTasks && e(TaskPanel, { busy, toolStage, toolEvents }),
     e(MessageHistory, { messages }),
     e(ActivityTree, { files, busy, isCollapsed, summary }),
-    e(StreamingMessage, { text: streamText, busy, toolStage, dynamicStatus }),
+    e(StreamingMessage, { text: streamText, busy, toolStage, dynamicStatus, continuing }),
     e(SuggestionChips, { suggestions, onSelect: handleSuggestionSelect }),
     e(ErrorBanner, { error }),
     e(StatusBar, { services, session: sessionKey, lastMeta }),
     e(InputPrompt, {
       value,
-      onChange: setValue,
+      onChange: handleChange,
       onSubmit,
-      disabled: busy,
+      busy,
+      queueLength,
     })
   );
 }
