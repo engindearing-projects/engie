@@ -30,7 +30,7 @@ cd cli && bun install && bun link
 cd ../mcp-bridge && npm install
 
 # Run the setup wizard — it handles the rest
-cozy init
+engie init
 ```
 
 The wizard installs Ollama, generates configs, sets up launchd services, and verifies everything connects.
@@ -42,7 +42,7 @@ The wizard installs Ollama, generates configs, sets up launchd services, and ver
 ### Terminal (TUI)
 
 ```bash
-cozy
+engie
 ```
 
 This opens the main interface. You get a chat window, a status bar showing service health, and a banner with context about what you've been working on. Press **Shift+Tab** to open the task panel — it shows your todos, active tool calls, and recent observations.
@@ -50,8 +50,8 @@ This opens the main interface. You get a chat window, a status bar showing servi
 ### One-shot from the command line
 
 ```bash
-cozy "what's the status of PROJ-42?"
-cozy "summarize yesterday's blockers"
+engie "what's the status of PROJ-42?"
+engie "summarize yesterday's blockers"
 ```
 
 Prints the answer and exits. Observations get captured automatically.
@@ -59,7 +59,7 @@ Prints the answer and exits. Observations get captured automatically.
 ### Coaching mode
 
 ```bash
-cozy --coach
+engie --coach
 ```
 
 Friendlier explanations with analogies and plain language. Toggle it inside the TUI with `/coach`.
@@ -67,10 +67,10 @@ Friendlier explanations with analogies and plain language. Toggle it inside the 
 ### Service management
 
 ```bash
-cozy status          # health check
-cozy doctor          # diagnostics
-cozy doctor --fix    # auto-repair common issues
-cozy start / stop    # manage launchd services
+engie status          # health check
+engie doctor          # diagnostics
+engie doctor --fix    # auto-repair common issues
+engie start / stop    # manage launchd services
 ```
 
 ### Memory
@@ -79,7 +79,7 @@ Every conversation gets parsed for decisions, blockers, ticket references, and p
 
 ```bash
 # Save something from the CLI
-cozy observe task_update "Finished API integration" --project myapp --tag PROJ-42
+engie observe task_update "Finished API integration" --project myapp --tag PROJ-42
 
 # Inside the TUI
 /memory PROJ-42          # search
