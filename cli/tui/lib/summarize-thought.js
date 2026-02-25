@@ -2,7 +2,7 @@
 // Falls back to a truncated version of the original if Ollama is unavailable or slow.
 
 const OLLAMA_URL = "http://localhost:11434/api/chat";
-const MODEL = "engie-coder:latest";
+const MODEL = "llama3.2:latest";
 const TIMEOUT_MS = 3000;
 
 /**
@@ -10,6 +10,14 @@ const TIMEOUT_MS = 3000;
  * @param {string} rawText - The raw thought text from the agent
  * @returns {Promise<string>} - Summarized text, or trimmed original on failure
  */
+/** Truncate to first sentence if Ollama is unavailable */
+function truncate(text) {
+  if (!text) return text;
+  // Grab first sentence or first 120 chars
+  const first = text.match(/^[^.!?\n]+[.!?]?/)?.[0] || text.slice(0, 120);
+  return first.length < text.length ? first + "..." : first;
+}
+
 export async function summarizeThought(rawText) {
   if (!rawText || rawText.length < 20) return rawText;
 
@@ -38,7 +46,7 @@ export async function summarizeThought(rawText) {
           },
         ],
         stream: false,
-        options: { num_predict: 100, temperature: 0.6 },
+        options: { num_predict: 60, temperature: 0.6 },
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -48,8 +56,8 @@ export async function summarizeThought(rawText) {
     const data = await resp.json();
     const summary = data.message?.content?.trim();
 
-    return summary && summary.length > 5 ? summary : rawText;
+    return summary && summary.length > 5 ? summary : truncate(rawText);
   } catch {
-    return rawText;
+    return truncate(rawText);
   }
 }
