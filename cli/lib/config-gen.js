@@ -87,7 +87,7 @@ export function generateGatewayConfig({ token }) {
         provider: "claude-proxy",
         model: "sonnet",
         systemPrompt:
-          "You are Engie, a persistent AI project manager. You help developers track work, manage sprints, and stay organized. You have access to tools for Jira, Slack, and other integrations via MCP.",
+          "You are Engie, a persistent AI assistant. You help with coding, debugging, research, and general tasks. You have access to local tools and integrations via MCP.",
         maxTokens: 4096,
         temperature: 0.3,
       },

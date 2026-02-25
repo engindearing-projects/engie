@@ -50,15 +50,14 @@ const VERSION = "1.0";
 
 // ── Sample messages for the scrollable area ──────────────────────────
 const SAMPLE_MESSAGES = [
-  { role: "user", text: "What tasks are on my sprint board?" },
-  { role: "assistant", text: "Checking your active sprint via Jira..." },
-  { role: "assistant", text: "Found 4 tickets in the current sprint:\n  PORT-9  Lab data API integration (In Progress)\n  PORT-12 Quest/Labcorp normalization (In Progress)\n  PORT-15 Clinical dashboard v1 (To Do)\n  PORT-17 Go-live checklist (To Do)" },
-  { role: "user", text: "What's blocking PORT-9?" },
-  { role: "assistant", text: "PORT-9 is blocked by:\n  AD-1200 Cognito pool mismatch (root cause found, PR pending)\n  AD-1205 Manual externalId insert (backlog)\n  AD-1206 AdminGetUser IAM permission (backlog)" },
+  { role: "user", text: "Write a quicksort function in JavaScript" },
+  { role: "assistant", text: "Here's a quicksort implementation:\n\n  function quicksort(arr) {\n    if (arr.length <= 1) return arr;\n    const pivot = arr[0];\n    const left = arr.slice(1).filter(x => x <= pivot);\n    const right = arr.slice(1).filter(x => x > pivot);\n    return [...quicksort(left), pivot, ...quicksort(right)];\n  }" },
+  { role: "user", text: "My API endpoint returns 500 on POST /users — can you debug?" },
+  { role: "assistant", text: "Let me check the route handler.\n\nFound the issue in routes/users.js:42 — the request body isn't being parsed.\nYou're missing the JSON middleware:\n\n  app.use(express.json());\n\nAdd that before your route definitions and the 500 should resolve." },
   { role: "user", text: "/status" },
-  { role: "system", text: "Gateway: connected | Ollama: running (llama3.1 8B) | Jira: authenticated" },
-  { role: "user", text: "Draft a standup update for today" },
-  { role: "assistant", text: "Here's a draft standup:\n\nYesterday:\n- Fixed Cognito pool mismatch root cause (AD-1200)\n- Updated Vercel env vars for dev environment\n- Opened devops PR #483 for Helm client IDs\n\nToday:\n- Waiting on PR #483 merge + redeploy\n- Continue PORT-12 normalization PRs\n- Test lab data endpoint once AD-1200 is resolved\n\nBlockers:\n- AD-1205 and AD-1206 still in backlog" },
+  { role: "system", text: "Gateway: connected | Ollama: running (llama3.1 8B) | MCP: 3 servers" },
+  { role: "user", text: "Explain what this regex does: /^[\\w.+-]+@[\\w-]+\\.[\\w.]+$/" },
+  { role: "assistant", text: "That's an email validation regex:\n\n  ^          — start of string\n  [\\w.+-]+   — one or more word chars, dots, plus, or hyphens (local part)\n  @          — literal @ sign\n  [\\w-]+     — one or more word chars or hyphens (domain name)\n  \\.         — literal dot\n  [\\w.]+     — one or more word chars or dots (TLD, can be multi-level)\n  $          — end of string\n\nIt covers most common email formats but won't catch every valid RFC 5322 address." },
 ];
 
 // =====================================================================

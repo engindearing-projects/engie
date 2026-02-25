@@ -1,13 +1,13 @@
 // Lightweight pattern-based observation extraction.
 // Runs after each completed exchange to capture decisions, blockers, preferences,
-// task updates, and Jira ticket references into the memory DB.
+// and task updates into the memory DB. Detects any Jira-style ticket tags automatically.
 // All errors are caught silently — this must never break chat.
 
 import { addObservation } from "./memory-db.js";
 
 // --- Detection patterns ---
 
-const TICKET_PATTERN = /\b(PORT-\d+|AD-\d+|MMA-\d+)\b/gi;
+const TICKET_PATTERN = /\b([A-Z]{2,10}-\d+)\b/g;
 
 const DECISION_PHRASES = [
   "let's",
@@ -111,16 +111,6 @@ function summarize(text, maxLen = 120) {
 }
 
 /**
- * Infer project from ticket references.
- */
-function inferProject(tickets) {
-  if (tickets.some((t) => t.startsWith("PORT-"))) return "patient-portal";
-  if (tickets.some((t) => t.startsWith("AD-"))) return "admin-devops";
-  if (tickets.some((t) => t.startsWith("MMA-"))) return "mma";
-  return null;
-}
-
-/**
  * Extract observations from a completed exchange and store them.
  * Returns an array of observation IDs. Never throws.
  *
@@ -142,7 +132,6 @@ export function extractAndStore(userText, assistantText, source) {
 
     const combined = userTrimmed + " " + assistantTrimmed;
     const tickets = extractTickets(combined);
-    const project = inferProject(tickets);
     const ids = [];
 
     // When the user message is just a confirmation ("yes", "do it", etc.),
@@ -153,7 +142,7 @@ export function extractAndStore(userText, assistantText, source) {
     if (containsPhrase(combined, DECISION_PHRASES)) {
       const id = addObservation({
         type: "decision",
-        project,
+        project: null,
         summary: summarize(summarySource),
         details: assistantTrimmed.slice(0, 500),
         tags: tickets.length ? tickets : undefined,
@@ -166,7 +155,7 @@ export function extractAndStore(userText, assistantText, source) {
     if (containsPhrase(combined, BLOCKER_PHRASES)) {
       const id = addObservation({
         type: "blocker",
-        project,
+        project: null,
         summary: summarize(summarySource),
         details: assistantTrimmed.slice(0, 500),
         tags: tickets.length ? tickets : undefined,
@@ -179,7 +168,7 @@ export function extractAndStore(userText, assistantText, source) {
     if (containsPhrase(combined, PREFERENCE_PHRASES)) {
       const id = addObservation({
         type: "preference",
-        project,
+        project: null,
         summary: summarize(summarySource),
         details: assistantTrimmed.slice(0, 500),
         tags: tickets.length ? tickets : undefined,
@@ -192,7 +181,7 @@ export function extractAndStore(userText, assistantText, source) {
     if (containsPhrase(combined, TASK_COMPLETION_PHRASES)) {
       const id = addObservation({
         type: "task_update",
-        project,
+        project: null,
         summary: summarize(summarySource),
         details: assistantTrimmed.slice(0, 500),
         tags: tickets.length ? tickets : undefined,
@@ -206,7 +195,7 @@ export function extractAndStore(userText, assistantText, source) {
     if (ids.length === 0) {
       const exchangeId = addObservation({
         type: "chat_exchange",
-        project,
+        project: null,
         summary: summarize(summarySource),
         tags: tickets.length ? tickets : undefined,
         source,

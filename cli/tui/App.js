@@ -92,7 +92,7 @@ export function App({ gateway, sessionKey, initialCoachMode = false }) {
   useInput(handleKey);
 
   return e(Box, { flexDirection: "column" },
-    e(Banner),
+    e(Banner, { files, summary, isCollapsed }),
     e(MessageHistory, { messages }),
     e(ActivityTree, { files, busy, isCollapsed, summary }),
     e(StreamingMessage, { text: streamText, busy, toolStage, dynamicStatus }),

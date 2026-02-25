@@ -16,6 +16,8 @@ function formatModel(model) {
   if (model.includes("opus")) return "opus";
   if (model.includes("haiku")) return "haiku";
   if (model.includes("engie-coder")) return "engie-coder";
+  if (model.includes("glm") && model.includes("flash")) return "glm-flash";
+  if (model.startsWith("qwen2.5")) return "qwen2.5";
   if (model.includes("llama")) return model.split("/").pop();
   return model.length > 20 ? model.slice(0, 20) : model;
 }
