@@ -4,6 +4,10 @@ import { colors } from "../lib/theme.js";
 
 const e = React.createElement;
 
+const THOUGHT_COLOR = "#a78bfa";   // soft purple — distinct from cyan assistant
+const BUBBLE_BORDER = "#7c3aed";   // deeper purple for the border
+const DOT_COLOR = "#8b5cf6";       // mid purple for trail dots
+
 export function ThoughtMessage({ text }) {
   // Wrap text to fit inside the bubble (leave room for border + padding)
   const cols = process.stdout.columns || 80;
@@ -30,19 +34,17 @@ export function ThoughtMessage({ text }) {
     e(Box, {
         flexDirection: "column",
         borderStyle: "round",
-        borderColor: colors.grayDim,
+        borderColor: BUBBLE_BORDER,
         paddingLeft: 1,
         paddingRight: 1,
       },
-      e(Text, { color: colors.gray, dimColor: true, italic: true },
+      e(Text, { color: THOUGHT_COLOR, italic: true },
         lines.join("\n")
       )
     ),
     // Thought trail — the classic bubble dots
-    e(Text, { color: colors.grayDim, dimColor: true }, "      ○"),
-    e(Text, { color: colors.grayDim, dimColor: true }, "     ○"),
-    e(Text, { color: colors.grayDim, dimColor: true, bold: true },
-      "    engie is thinking..."
-    )
+    e(Text, { color: DOT_COLOR }, "      ○"),
+    e(Text, { color: DOT_COLOR }, "     ○"),
+    e(Text, { color: DOT_COLOR, bold: true }, "    engie is thinking...")
   );
 }
