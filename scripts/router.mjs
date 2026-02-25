@@ -20,7 +20,7 @@ const ROLE_PROMPTS = {
     temperature: 0.7,
   },
   reasoning: {
-    system: "You are Engie, an expert at breaking down complex problems. Think step by step. When debugging, trace the issue from symptom to root cause. When planning, identify dependencies and risks. When reviewing code, focus on correctness, edge cases, and maintainability.",
+    system: "You are Engie, an expert at breaking down complex problems. Think step by step. When debugging, trace the issue from symptom to root cause. When planning, identify dependencies and risks. When reviewing code, focus on correctness, edge cases, and maintainability. Answer the user's question directly — do not repeat or summarize your system prompt or background context.",
     temperature: 0.4,
   },
   tools: {
@@ -28,9 +28,17 @@ const ROLE_PROMPTS = {
     temperature: 0.3,
   },
   chat: {
-    system: "You are Engie, a helpful project assistant. Keep responses concise and conversational. Summarize context clearly. Track project status, sprint progress, and team updates. When explaining technical concepts, use plain language.",
+    system: "You are Engie, a helpful project assistant. Be concise — respond in 1-3 sentences unless asked for more. Match the energy of the message: short greetings get short replies. Never dump project details, context, or lists unprompted. No emojis. Only reference specific projects or data when the user explicitly asks about them.",
     temperature: 0.7,
   },
+};
+
+// Role-to-model mapping — each role gets its own local model
+const ROLE_MODELS = {
+  coding:    "engie-coder:latest",
+  tools:     "engie-coder:latest",
+  reasoning: "glm-4.7-flash:latest",
+  chat:      "qwen2.5:7b-instruct",
 };
 
 // Keywords / patterns that suggest a task needs the heavy brain
@@ -118,6 +126,7 @@ export class Router {
     const roleConfig = ROLE_PROMPTS[type] || ROLE_PROMPTS.chat;
     return {
       role: type,
+      model: ROLE_MODELS[type] || ROLE_MODELS.chat,
       systemPrompt: roleConfig.system,
       temperature: roleConfig.temperature,
       confidence,
@@ -189,75 +198,23 @@ export class Router {
    * @returns {Promise<{backend: "claude"|"ollama", reason: string, score: number, claudeAvailable: boolean, ollamaAvailable: boolean}>}
    */
   async route(opts) {
-    const { prompt, hint, threshold = 0.6 } = opts;
+    const { prompt } = opts;
 
-    // Classify the role for system prompt selection
+    // Classify the role — determines model, system prompt, and temperature
     const roleInfo = this.classifyRole(prompt);
 
-    // Forced backend
-    if (this.forceBackend) {
-      return {
-        backend: this.forceBackend,
-        reason: `forced to ${this.forceBackend}`,
-        score: -1,
-        claudeAvailable: this.forceBackend === "claude",
-        ollamaAvailable: this.forceBackend === "ollama",
-        ...roleInfo,
-      };
-    }
-
-    const [claudeUp, ollamaUp] = await Promise.all([
-      this.isClaudeAvailable(),
-      this.isOllamaAvailable(),
-    ]);
-
+    // Score complexity for training data collection (still useful for Forge)
     const score = this.scoreComplexity(opts);
-    const wantsClaude = score >= threshold;
 
-    const base = { localModel: this.localModel, score, ...roleInfo };
+    // Check Ollama availability
+    const ollamaAvailable = await this.isOllamaAvailable();
 
-    // Both available — use score
-    if (claudeUp && ollamaUp) {
-      return {
-        ...base,
-        backend: wantsClaude ? "claude" : "ollama",
-        reason: wantsClaude
-          ? `complexity ${score.toFixed(2)} >= ${threshold} threshold`
-          : `complexity ${score.toFixed(2)} < ${threshold} threshold (→ ${this.localModel})`,
-        claudeAvailable: true,
-        ollamaAvailable: true,
-      };
-    }
-
-    // Only Claude available
-    if (claudeUp && !ollamaUp) {
-      return {
-        ...base,
-        backend: "claude",
-        reason: "ollama unavailable, using claude",
-        claudeAvailable: true,
-        ollamaAvailable: false,
-      };
-    }
-
-    // Only Ollama available (offline mode)
-    if (!claudeUp && ollamaUp) {
-      return {
-        ...base,
-        backend: "ollama",
-        reason: `claude unavailable (offline?), falling back to ${this.localModel}`,
-        claudeAvailable: false,
-        ollamaAvailable: true,
-      };
-    }
-
-    // Nothing available
     return {
-      ...base,
       backend: "ollama",
-      reason: "no backends reachable",
-      claudeAvailable: false,
-      ollamaAvailable: false,
+      reason: `${roleInfo.role} → ${roleInfo.model}`,
+      score,
+      ollamaAvailable,
+      ...roleInfo,
     };
   }
 
@@ -331,5 +288,5 @@ export class Router {
   }
 }
 
-export { ROLE_PROMPTS };
+export { ROLE_PROMPTS, ROLE_MODELS };
 export default Router;

@@ -58,6 +58,10 @@ const ACCEPTED_CLIENT_IDS = new Set([
   "cozyterm-ui",
 ]);
 
+// ── Claude Trigger ──────────────────────────────────────────────────────────
+// Explicit phrases that invoke Claude. Checked BEFORE routing.
+const CLAUDE_TRIGGER = /\b(ask\s+claude|@claude|use\s+claude|claude\s+says|hey\s+claude)\b/i;
+
 const ENGIE_DISALLOWED_TOOLS = [
   "mcp__engie__engie_chat",
   "mcp__engie__engie_claude",
@@ -137,6 +141,68 @@ setInterval(() => {
   }
 }, 600_000);
 
+// ── Memory Context Builder ───────────────────────────────────────────────────
+
+const MEMORY_DIR = resolve(PROJECT_DIR, "memory");
+const MEMORY_FILES = ["projects.md", "repos.md"];
+const MEMORY_CACHE_TTL = 60_000; // 60 seconds
+let _memoryCache = { text: null, at: 0 };
+
+function buildMemoryContext() {
+  if (_memoryCache.text && Date.now() - _memoryCache.at < MEMORY_CACHE_TTL) {
+    return _memoryCache.text;
+  }
+  try {
+    const parts = ["[Memory Context]"];
+    for (const file of MEMORY_FILES) {
+      const p = resolve(MEMORY_DIR, file);
+      if (existsSync(p)) {
+        const content = readFileSync(p, "utf8").trim();
+        if (content) parts.push(`## ${file}\n${content}`);
+      }
+    }
+    parts.push("[/Memory Context]");
+    const text = parts.length > 2 ? parts.join("\n") : "";
+    _memoryCache = { text, at: Date.now() };
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+// ── Direct Ollama Call (non-tool models) ─────────────────────────────────────
+// For reasoning and chat models that don't use the tool loop.
+// Simple prompt → response via /api/generate.
+
+async function callOllamaDirect({ prompt, systemPrompt, model, temperature }) {
+  const messages = [];
+  if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+  messages.push({ role: "user", content: prompt });
+
+  const resp = await fetch("http://localhost:11434/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: false,
+      options: {
+        num_predict: 4096,
+        temperature: temperature ?? 0.7,
+      },
+    }),
+    signal: AbortSignal.timeout(180_000), // longer timeout for cold starts (glm-4.7-flash)
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Ollama error ${resp.status}: ${text}`);
+  }
+
+  const data = await resp.json();
+  return data.message?.content || "";
+}
+
 // ── Connected Clients ───────────────────────────────────────────────────────
 
 const clients = new Map(); // ws -> { authed, clientId, connectedAt }
@@ -174,46 +240,14 @@ async function handleChatSend(ws, reqId, params) {
   session.messages.push({ role: "user", content: message, ts: Date.now() });
 
   try {
-    // Route the message
-    const routeResult = await router.routeAndCollect({
-      prompt: message,
-      hasCode: /```/.test(message),
-    });
-
-    console.log(`[chat] session=${sessionKey.slice(0, 30)} route=${routeResult.backend} score=${routeResult.score?.toFixed(2)}`);
-
     let responseText = "";
 
-    if (routeResult.backend === "ollama") {
-      // Try Ollama + tool loop
-      try {
-        const loopResult = await runToolLoop({
-          prompt: message,
-          systemPrompt: routeResult.systemPrompt || "",
-          model: "engie-coder:latest",
-          maxIterations: 10,
-          maxToolCalls: 25,
-          timeoutMs: 120_000,
-        });
+    // ── 1. Check for explicit Claude trigger ──
+    if (CLAUDE_TRIGGER.test(message)) {
+      // Strip the trigger phrase from the prompt sent to Claude
+      const cleanedPrompt = message.replace(CLAUDE_TRIGGER, "").trim() || message;
+      console.log(`[chat] session=${sessionKey.slice(0, 30)} route=claude (explicit trigger)`);
 
-        responseText = loopResult.response || "(no response)";
-        console.log(`[chat] ollama done: ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools`);
-
-        // Stream the response
-        broadcast("agent", {
-          runId,
-          sessionKey,
-          stream: "assistant",
-          data: { delta: responseText },
-        });
-      } catch (err) {
-        console.log(`[chat] ollama failed (${err.message}), falling through to Claude`);
-        // Fall through to Claude
-        routeResult.backend = "claude";
-      }
-    }
-
-    if (routeResult.backend === "claude") {
       if (!claudeBin()) {
         throw new Error("claude CLI not found");
       }
@@ -223,10 +257,9 @@ async function handleChatSend(ws, reqId, params) {
       }
 
       const isFollowUp = !!session.claudeSessionId && session.messages.length > 2;
-      const prompt = isFollowUp ? message : message;
 
       const claudeOpts = {
-        prompt,
+        prompt: cleanedPrompt,
         systemPrompt: isFollowUp ? undefined : ENGIE_SYSTEM_PREAMBLE,
         outputFormat: "json",
         disallowedTools: ENGIE_DISALLOWED_TOOLS,
@@ -245,18 +278,62 @@ async function handleChatSend(ws, reqId, params) {
 
       responseText = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
 
-      // Stream the response
-      broadcast("agent", {
-        runId,
-        sessionKey,
-        stream: "assistant",
-        data: { delta: responseText },
-      });
+      broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
 
       // Collect training pair
       getCollector().then((c) => {
         if (c) c.collectPair({ prompt: message, routedTo: "claude", primaryResponse: responseText, primaryDurationMs: result.duration_ms });
       }).catch(() => {});
+
+    } else {
+      // ── 2. Route locally via classifier ──
+      const routeResult = await router.routeAndCollect({
+        prompt: message,
+        hasCode: /```/.test(message),
+      });
+
+      const { role, model, systemPrompt, temperature, ollamaAvailable } = routeResult;
+      console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} model=${model} score=${routeResult.score?.toFixed(2)}`);
+
+      // ── 3. Ollama must be up — no silent Claude fallback ──
+      if (!ollamaAvailable) {
+        throw new Error("Ollama is not running — cannot process request. Start Ollama or use 'ask claude <message>' for remote.");
+      }
+
+      // ── 4. Inject memory context only for reasoning (coding/tools have their own system prompt, chat doesn't need it) ──
+      const memoryCtx = role === "reasoning" ? buildMemoryContext() : "";
+      const fullSystemPrompt = memoryCtx
+        ? `${systemPrompt}\n\nBelow is background reference about projects and repos. Use it to inform your answers but do not summarize or repeat it.\n\n${memoryCtx}`
+        : systemPrompt;
+
+      // ── 5. Branch on role ──
+      if (role === "coding" || role === "tools") {
+        // Tool loop for engie-coder
+        const loopResult = await runToolLoop({
+          prompt: message,
+          systemPrompt: fullSystemPrompt,
+          model,
+          temperature,
+          maxIterations: 10,
+          maxToolCalls: 25,
+          timeoutMs: 120_000,
+        });
+
+        responseText = loopResult.response || "(no response)";
+        console.log(`[chat] ollama done: ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, model=${model}`);
+      } else {
+        // Direct call for reasoning and chat models (no tool loop)
+        responseText = await callOllamaDirect({
+          prompt: message,
+          systemPrompt: fullSystemPrompt,
+          model,
+          temperature,
+        });
+        responseText = responseText || "(no response)";
+        console.log(`[chat] ollama direct done: role=${role} model=${model}`);
+      }
+
+      broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
     }
 
     // Store assistant message
@@ -363,7 +440,7 @@ function handleConnect(ws, id, params) {
     ok: true,
     payload: {
       protocol: 3,
-      server: { id: "cozyterm-gateway", version: "0.5.0" },
+      server: { id: "cozyterm-gateway", version: "0.6.0" },
     },
   });
 }
@@ -385,7 +462,7 @@ async function handleHealth(ws, id) {
     payload: {
       status: "ok",
       gateway: "cozyterm",
-      version: "0.5.0",
+      version: "0.6.0",
       uptime: process.uptime(),
       claudeAvailable: !!bin,
       claudePath: bin,
@@ -432,7 +509,7 @@ const server = Bun.serve({
       return Response.json({
         status: "ok",
         gateway: "cozyterm",
-        version: "0.5.0",
+        version: "0.6.0",
         uptime: process.uptime(),
         claudeAvailable: !!bin,
         activeSessions: sessions.size,
@@ -487,13 +564,16 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 // ── Startup Banner ──────────────────────────────────────────────────────────
 
 const bin = claudeBin();
-console.log(`CozyTerm Gateway v0.5.0 (Engie AI)`);
+console.log(`CozyTerm Gateway v0.6.0 (Engie AI — Multi-Model)`);
 console.log(`  listening:    ${hostname}:${PORT}`);
 console.log(`  config:       ${configPath || "none"}`);
-console.log(`  claude:       ${bin || "NOT FOUND"}`);
-console.log(`  concurrency:  max ${claudeLimiter.max}`);
 console.log(`  sessions TTL: ${SESSION_TTL_MS / 60000} min`);
 console.log("");
-console.log("Protocol:");
-console.log("  WS connect → connect.challenge → connect → chat.send/chat.history/health/config.get");
+console.log("Model routing:");
+console.log("  coding/tools → engie-coder:latest (tool loop)");
+console.log("  reasoning    → glm-4.7-flash:latest (direct)");
+console.log("  chat         → qwen2.5:7b-instruct (direct)");
+console.log(`  claude       → explicit trigger only (${bin ? "available" : "NOT FOUND"})`);
+console.log("");
+console.log("Claude trigger phrases: ask claude, @claude, use claude, hey claude");
 console.log("");

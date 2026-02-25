@@ -249,7 +249,7 @@ function messagesToPrompt(messages) {
   return parts.join("\n");
 }
 
-async function callOllama(messages, model) {
+async function callOllama(messages, model, temperature) {
   const prompt = messagesToPrompt(messages);
 
   const resp = await fetch(`${OLLAMA_URL}/api/generate`, {
@@ -262,7 +262,7 @@ async function callOllama(messages, model) {
       stream: false,
       options: {
         num_predict: 8192,
-        temperature: 0.7,
+        temperature: temperature ?? 0.7,
       },
     }),
     signal: AbortSignal.timeout(90_000),
@@ -286,6 +286,7 @@ async function callOllama(messages, model) {
  * @param {string} opts.prompt - The user's message
  * @param {string} [opts.systemPrompt] - Additional system prompt context
  * @param {string} [opts.model] - Ollama model name (default: engie-coder:latest)
+ * @param {number} [opts.temperature] - Sampling temperature (default: 0.7)
  * @param {number} [opts.maxIterations] - Max loop iterations (default: 10)
  * @param {number} [opts.maxToolCalls] - Max total tool calls (default: 25)
  * @param {number} [opts.timeoutMs] - Total timeout (default: 120000)
@@ -298,6 +299,7 @@ export async function runToolLoop(opts) {
     prompt,
     systemPrompt = "",
     model = DEFAULT_MODEL,
+    temperature,
     maxIterations = DEFAULT_MAX_ITERATIONS,
     maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -338,7 +340,7 @@ export async function runToolLoop(opts) {
     // Call the model
     let modelOutput;
     try {
-      modelOutput = await callOllama(messages, model);
+      modelOutput = await callOllama(messages, model, temperature);
     } catch (err) {
       finishReason = "error";
       finalResponse = `Model error: ${err.message}`;
@@ -413,7 +415,7 @@ export async function runToolLoop(opts) {
       finishReason = "max_iterations";
       // Give the model one more chance to respond without tools
       try {
-        modelOutput = await callOllama(messages, model);
+        modelOutput = await callOllama(messages, model, temperature);
         finalResponse = modelOutput;
       } catch {
         finalResponse = reasoning || "Reached maximum iterations.";
