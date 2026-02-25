@@ -15,6 +15,7 @@ const HELP_TEXT = [
   "  /status            Show service health",
   "  /memory [query]    Search memory (no query = show recent)",
   "  /observe <text>    Save an observation to memory",
+  "  /todo [add|done]   Manage todo items (shift+tab to view panel)",
   "  /forge [cmd]       Training pipeline (status, train, eval, data)",
   "  /coach             Toggle coaching mode",
   "  /explain [concept] Get a friendly explanation",
@@ -209,6 +210,77 @@ export function useSlashCommands({ gateway, app, setMessages, setStreamText, sen
           setMessages((prev) => [...prev, sysMsg(`Failed to save: ${err.message}`)]);
         }
 
+        return true;
+      }
+
+      // /todo [add|done]
+      if (lower === "/todo" || lower.startsWith("/todo ")) {
+        const todoArgs = trimmed.slice("/todo".length).trim();
+
+        // /todo (no args) — list all todos
+        if (!todoArgs) {
+          try {
+            const mem = await import("../../lib/memory-db.js").catch(() => null);
+            if (!mem) {
+              setMessages((prev) => [...prev, sysMsg("Memory DB not available")]);
+              return true;
+            }
+            const todos = mem.getByType("todo", 20);
+            if (todos.length === 0) {
+              setMessages((prev) => [...prev, sysMsg("No todos. Use /todo add <text> to create one.")]);
+            } else {
+              const lines = todos.map((t) => `  \u2610 ${t.summary}  (${t.id})`);
+              setMessages((prev) => [...prev, sysMsg(`Todos:\n${lines.join("\n")}`)]);
+            }
+          } catch (err) {
+            setMessages((prev) => [...prev, sysMsg(`Todo error: ${err.message}`)]);
+          }
+          return true;
+        }
+
+        // /todo add <text>
+        if (todoArgs.startsWith("add ")) {
+          const text = todoArgs.slice("add ".length).trim();
+          if (!text) {
+            setMessages((prev) => [...prev, sysMsg("Usage: /todo add <text>")]);
+            return true;
+          }
+          try {
+            const id = await addObservation({ type: "todo", summary: text, source: "cli" });
+            setMessages((prev) => [...prev, sysMsg(`Added todo: ${text}  (${id})`)]);
+          } catch (err) {
+            setMessages((prev) => [...prev, sysMsg(`Failed to add todo: ${err.message}`)]);
+          }
+          return true;
+        }
+
+        // /todo done <id>
+        if (todoArgs.startsWith("done ")) {
+          const id = todoArgs.slice("done ".length).trim();
+          if (!id) {
+            setMessages((prev) => [...prev, sysMsg("Usage: /todo done <id>")]);
+            return true;
+          }
+          try {
+            const mem = await import("../../lib/memory-db.js").catch(() => null);
+            if (!mem) {
+              setMessages((prev) => [...prev, sysMsg("Memory DB not available")]);
+              return true;
+            }
+            const deleted = mem.deleteObservation(id);
+            if (deleted) {
+              setMessages((prev) => [...prev, sysMsg(`Done: removed ${id}`)]);
+            } else {
+              setMessages((prev) => [...prev, sysMsg(`Not found: ${id}`)]);
+            }
+          } catch (err) {
+            setMessages((prev) => [...prev, sysMsg(`Todo error: ${err.message}`)]);
+          }
+          return true;
+        }
+
+        // Unknown /todo subcommand
+        setMessages((prev) => [...prev, sysMsg("Usage: /todo, /todo add <text>, /todo done <id>")]);
         return true;
       }
 

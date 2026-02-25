@@ -7,6 +7,7 @@ import { ActivityTree } from "./components/ActivityTree.js";
 import { SuggestionChips } from "./components/SuggestionChips.js";
 import { ErrorBanner } from "./components/ErrorBanner.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { TaskPanel } from "./components/TaskPanel.js";
 import { InputPrompt } from "./components/InputPrompt.js";
 import { useGateway } from "./hooks/useGateway.js";
 import { useInputHistory } from "./hooks/useInputHistory.js";
@@ -21,6 +22,7 @@ export function App({ gateway, sessionKey, initialCoachMode = false }) {
   const app = useApp();
   const [coachMode, setCoachMode] = useState(initialCoachMode);
   const [dynamicStatus, setDynamicStatus] = useState(null);
+  const [showTasks, setShowTasks] = useState(false);
 
   const { messages, setMessages, streamText, setStreamText, busy, connected, error, sendMessage, suggestions, setSuggestions, toolStage, toolEvents, lastMeta } =
     useGateway(gateway, sessionKey, coachMode);
@@ -91,8 +93,16 @@ export function App({ gateway, sessionKey, initialCoachMode = false }) {
   // Arrow key history navigation
   useInput(handleKey);
 
+  // Shift+Tab toggles task panel
+  useInput((_input, key) => {
+    if (key.shift && key.tab) {
+      setShowTasks((v) => !v);
+    }
+  }, { isActive: true });
+
   return e(Box, { flexDirection: "column" },
     e(Banner, { files, summary, isCollapsed }),
+    showTasks && e(TaskPanel, { busy, toolStage, toolEvents }),
     e(MessageHistory, { messages }),
     e(ActivityTree, { files, busy, isCollapsed, summary }),
     e(StreamingMessage, { text: streamText, busy, toolStage, dynamicStatus }),

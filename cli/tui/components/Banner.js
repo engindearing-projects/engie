@@ -10,6 +10,7 @@ const STATIC_TIPS = [
   "/memory to search past context",
   "/observe to save a quick note",
   "/status for service health",
+  "shift+tab for task panel",
   "/help for all commands",
 ];
 
