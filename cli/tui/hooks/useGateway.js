@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { extractAndStore } from "../../lib/extract-observations.js";
 import { extractSuggestions, stripSuggestions } from "../lib/extract-suggestions.js";
+import { summarizeThought } from "../lib/summarize-thought.js";
 
 const ACTIVITY_URL = `http://localhost:${process.env.ACTIVITY_PORT || 18790}`;
 
@@ -138,10 +139,22 @@ export function useGateway(gw, sessionKey, coachMode = false) {
           const role = finalCountRef.current === 0 ? "assistant" : "thought";
           finalCountRef.current++;
 
+          const msgId = `a-${++msgCounter}`;
           setMessages((prev) => [
             ...prev,
-            { id: `a-${++msgCounter}`, role, text: cleanText },
+            { id: msgId, role, text: cleanText },
           ]);
+
+          // Summarize thought messages via local Ollama (fire-and-forget)
+          if (role === "thought") {
+            summarizeThought(cleanText).then((summary) => {
+              if (summary && summary !== cleanText) {
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === msgId ? { ...m, text: summary } : m))
+                );
+              }
+            });
+          }
         }
 
         // Extract response metadata (model + duration)
