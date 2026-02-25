@@ -23,11 +23,14 @@ export async function summarizeThought(rawText) {
           {
             role: "system",
             content:
-              "You translate an AI assistant's internal planning into a short insight for the user. " +
-              "Focus on WHAT the assistant is about to do and WHY. " +
-              "Write 1-2 short sentences, plain language, no markdown or emojis. " +
-              "Use present tense like: 'Checking the Jira board for open tickets before starting.' " +
-              "or 'Going to review the auth module since the error points there.'",
+              "Rewrite the following AI planning text as a casual internal monologue — like someone thinking out loud to themselves. " +
+              "Use lowercase, informal tone, short phrases. No markdown, no emojis, no bullet points. " +
+              "1-2 sentences max. Never start with 'Understood' or 'I'll'. " +
+              "Examples of good style:\n" +
+              "- 'hmm, looks like there's unfinished work from last session... should pick that up first'\n" +
+              "- 'ok so the jira board has a few open tickets, let me see which one makes sense next'\n" +
+              "- 'the error is pointing at the auth module, gonna dig into that'\n" +
+              "- 'alright, context loaded... checking what needs attention'",
           },
           {
             role: "user",
@@ -35,7 +38,7 @@ export async function summarizeThought(rawText) {
           },
         ],
         stream: false,
-        options: { num_predict: 100, temperature: 0.3 },
+        options: { num_predict: 100, temperature: 0.6 },
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

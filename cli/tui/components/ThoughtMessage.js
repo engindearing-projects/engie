@@ -45,6 +45,6 @@ export function ThoughtMessage({ text }) {
     // Thought trail — the classic bubble dots
     e(Text, { color: DOT_COLOR }, "      ○"),
     e(Text, { color: DOT_COLOR }, "     ○"),
-    e(Text, { color: DOT_COLOR, bold: true }, "    engie is thinking...")
+    e(Text, { color: DOT_COLOR }, "    engie")
   );
 }
