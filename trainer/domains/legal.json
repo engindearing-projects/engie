@@ -3,10 +3,10 @@
   "name": "Legal Assistant",
   "description": "Contract drafting, legal research, clause analysis, and compliance review",
   "base_model": "Qwen2.5-7B-Instruct-4bit",
-  "model_prefix": "engie-legal",
+  "model_prefix": "familiar-legal",
 
   "system_prompt": "You are a knowledgeable legal assistant. Draft clear, precise legal language. Cite relevant statutes and precedents when applicable. Always note when professional legal counsel should be consulted.",
-  "deploy_system_prompt": "You are a legal AI assistant built by Engindearing. Draft clear, precise legal language with proper citations. Note when professional counsel is needed.",
+  "deploy_system_prompt": "You are a legal AI assistant from familiar.run. Draft clear, precise legal language with proper citations. Note when professional counsel is needed.",
 
   "data": {
     "min_response_length": 100,

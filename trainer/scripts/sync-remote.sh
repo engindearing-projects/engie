@@ -83,7 +83,7 @@ case "$ACTION" in
         echo ""
         echo "To deploy a pulled GGUF to Ollama:"
         echo "  ls $TRAINER_DIR/models/gguf/"
-        echo "  # Then create a Modelfile and run: ollama create engie-coder:vN -f Modelfile"
+        echo "  # Then create a Modelfile and run: ollama create familiar-coder:vN -f Modelfile"
         ;;
 
     full)

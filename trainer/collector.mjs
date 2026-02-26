@@ -14,7 +14,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const RAW_DIR = resolve(__dirname, "data", "raw");
 const CLAUDE_PROXY_URL = "http://127.0.0.1:18791";
 const OLLAMA_URL = "http://localhost:11434";
-const DEFAULT_LOCAL_MODEL = "engie-coder:latest";
+const DEFAULT_LOCAL_MODEL = "familiar-coder:latest";
 
 // Ensure raw data directory exists
 if (!existsSync(RAW_DIR)) {
@@ -57,7 +57,7 @@ async function callOllama(prompt, model = DEFAULT_LOCAL_MODEL) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations." },
+          { role: "system", content: "You are Familiar, an expert coding assistant. Write clean, well-structured code with clear explanations." },
           { role: "user", content: prompt },
         ],
         stream: false,
@@ -193,7 +193,7 @@ export class Collector {
 
   /**
    * Collect a comparison from dual-send (training mode).
-   * Stores Claude and engie-coder responses side-by-side.
+   * Stores Claude and familiar-coder responses side-by-side.
    * Fire-and-forget — never blocks the caller.
    */
   collectComparison({ prompt, goal, context, claudeResponse, claudeDurationMs, engieResponse, engieDurationMs, sessionKey, complexityScore }) {

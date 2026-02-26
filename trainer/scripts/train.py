@@ -128,7 +128,7 @@ def main():
     adapter_path = ADAPTERS_DIR / f"v{version}"
     adapter_path.mkdir(parents=True, exist_ok=True)
 
-    model_prefix = DOMAIN.get("model_prefix", "engie-coder")
+    model_prefix = DOMAIN.get("model_prefix", "familiar-coder")
 
     print(f"=== The Forge — Training {model_prefix} v{version} ===")
     print(f"  Domain:       {DOMAIN['name']} ({domain_id})")

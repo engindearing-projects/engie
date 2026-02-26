@@ -16,7 +16,7 @@ import { colors } from "./lib/theme.js";
 import { WelcomeScreen } from "./components/WelcomeScreen.js";
 import { StepList } from "./components/StepList.js";
 import {
-  engieHome,
+  familiarHome,
   ensureDirs,
   configPath,
   envFilePath,
@@ -282,7 +282,7 @@ export function WizardApp() {
   function runGlobalCommand() {
     setTimeout(() => {
       // Check if engie is already on PATH
-      const existing = whichSync("engie");
+      const existing = whichSync("familiar");
       if (existing) {
         completeStep("global_command", existing);
         advanceToNext();
@@ -294,7 +294,7 @@ export function WizardApp() {
       const cliDir = resolve(__dirname, "..");
       const npmResult = tryExec(`npm link`, { timeout: 30000, cwd: cliDir });
       if (npmResult !== null) {
-        const check = whichSync("engie");
+        const check = whichSync("familiar");
         if (check) {
           completeStep("global_command", check);
           advanceToNext();
@@ -306,11 +306,11 @@ export function WizardApp() {
       const bunResult = tryExec(`bun link`, { timeout: 30000, cwd: cliDir });
       if (bunResult !== null) {
         const bunBin = resolve(process.env.HOME || "/tmp", ".bun", "bin");
-        const check = whichSync("engie");
+        const check = whichSync("familiar");
         if (check) {
           completeStep("global_command", check);
         } else {
-          // engie is in ~/.bun/bin but not on PATH — add to shell profile
+          // familiar is in ~/.bun/bin but not on PATH — add to shell profile
           const shell = process.env.SHELL || "/bin/zsh";
           const profileFile = shell.includes("zsh")
             ? resolve(process.env.HOME || "/tmp", ".zshrc")
@@ -320,7 +320,7 @@ export function WizardApp() {
           try {
             const profileContent = existsSync(profileFile) ? readFileSync(profileFile, "utf-8") : "";
             if (!profileContent.includes(".bun/bin")) {
-              appendFileSync(profileFile, `\n# Added by engie init\n${exportLine}\n`, "utf-8");
+              appendFileSync(profileFile, `\n# Added by familiar init\n${exportLine}\n`, "utf-8");
               completeStep("global_command", `added ~/.bun/bin to ${profileFile.split("/").pop()}`);
             } else {
               completeStep("global_command", `~/.bun/bin (already in ${profileFile.split("/").pop()})`);
@@ -354,7 +354,7 @@ export function WizardApp() {
     if (yes) {
       updateStep("gateway", { status: "active", detail: "starting gateway..." });
       setTimeout(() => {
-        const result = tryExec("launchctl kickstart gui/$(id -u)/com.engie.gateway", { timeout: 60000 });
+        const result = tryExec("launchctl kickstart gui/$(id -u)/com.familiar.gateway", { timeout: 60000 });
         if (result !== null) {
           const check = checkGateway();
           if (check.installed) {
@@ -471,7 +471,7 @@ export function WizardApp() {
 
         const token = dataRef.current.gatewayToken;
 
-        // cozyterm.json
+        // familiar.json
         const ocConfig = generateGatewayConfig({ token });
         writeFileSync(configPath(), JSON.stringify(ocConfig, null, 2) + "\n", "utf-8");
 
@@ -539,10 +539,10 @@ export function WizardApp() {
         const bunPath = whichSync("bun") || "bun";
 
         // Remove existing registration first (ignore errors)
-        tryExec(`claude mcp remove engie`, { timeout: 10000 });
+        tryExec(`claude mcp remove familiar`, { timeout: 10000 });
 
         const result = tryExec(
-          `claude mcp add engie "${bunPath}" "${bridgePath}"`,
+          `claude mcp add familiar "${bunPath}" "${bridgePath}"`,
           { timeout: 15000 }
         );
 
@@ -816,7 +816,7 @@ export function WizardApp() {
       ? e(Box, { flexDirection: "column", marginTop: 1, marginLeft: 2 },
           e(Text, null, ""),
           e(Text, { color: colors.green, bold: true }, "Setup complete!"),
-          e(Text, { color: colors.gray }, "Run `engie` to start chatting.")
+          e(Text, { color: colors.gray }, "Run `familiar` to get your familiar.")
         )
       : null
   );

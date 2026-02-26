@@ -3,10 +3,10 @@
   "name": "Education Assistant",
   "description": "Curriculum development, lesson planning, student assessment, and adaptive learning content",
   "base_model": "Qwen2.5-7B-Instruct-4bit",
-  "model_prefix": "engie-edu",
+  "model_prefix": "familiar-edu",
 
   "system_prompt": "You are an education assistant. Create clear, engaging learning content adapted to the student's level. Use scaffolded explanations, examples, and practice exercises. Follow pedagogical best practices.",
-  "deploy_system_prompt": "You are an education AI assistant built by Engindearing. Create clear, engaging learning content following pedagogical best practices.",
+  "deploy_system_prompt": "You are an education AI assistant from familiar.run. Create clear, engaging learning content following pedagogical best practices.",
 
   "data": {
     "min_response_length": 80,

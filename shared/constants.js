@@ -7,16 +7,16 @@ export const DEFAULT_PROXY_PORT = 18791;
 export const DEFAULT_ACTIVITY_PORT = 18790;
 export const DEFAULT_OLLAMA_PORT = 11434;
 
-export const SESSION_KEY = "agent:engie:cli";
-export const DAEMON_SESSION_KEY = "agent:engie:daemon";
+export const SESSION_KEY = "agent:familiar:cli";
+export const DAEMON_SESSION_KEY = "agent:familiar:daemon";
 export const MOBILE_SESSION_KEY = "main";
 
 export const SERVICE_NAMES = {
-  gateway: "com.cozyterm.gateway",
-  claudeProxy: "com.cozyterm.claude-proxy",
-  activitySync: "com.cozyterm.activity-sync",
-  telegramPush: "com.cozyterm.telegram-push",
-  daemon: "com.engie.daemon",
+  gateway: "com.familiar.gateway",
+  claudeProxy: "com.familiar.claude-proxy",
+  activitySync: "com.familiar.activity-sync",
+  telegramPush: "com.familiar.telegram-push",
+  daemon: "com.familiar.daemon",
   ollama: "homebrew.mxcl.ollama",
 };
 
@@ -27,7 +27,7 @@ export const HEALTH_URLS = {
 };
 
 // Gateway WebSocket client identity
-export const CLIENT_ID = "cozyterm-ui";
+export const CLIENT_ID = "familiar-ui";
 export const CLIENT_VERSION = "1.0.0";
 export const PROTOCOL_VERSION = 3;
 

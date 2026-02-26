@@ -17,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
 const TRACES_DIR = resolve(PROJECT_DIR, "trainer", "data", "traces");
 
-const DEFAULT_MODEL = "engie-coder:latest";
+const DEFAULT_MODEL = "familiar-coder:latest";
 const DEFAULT_MAX_ITERATIONS = 10;
 const DEFAULT_MAX_TOOL_CALLS = 25;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -285,7 +285,7 @@ async function callOllama(messages, model, temperature) {
  * @param {object} opts
  * @param {string} opts.prompt - The user's message
  * @param {string} [opts.systemPrompt] - Additional system prompt context
- * @param {string} [opts.model] - Ollama model name (default: engie-coder:latest)
+ * @param {string} [opts.model] - Ollama model name (default: familiar-coder:latest)
  * @param {number} [opts.temperature] - Sampling temperature (default: 0.7)
  * @param {number} [opts.maxIterations] - Max loop iterations (default: 10)
  * @param {number} [opts.maxToolCalls] - Max total tool calls (default: 25)
@@ -505,7 +505,7 @@ function saveTrace({ prompt, response, trace, finishReason, totalDurationMs, mod
       trace: traceMessages,
       metadata: {
         type: "agent_loop",
-        source: "engie-coder",
+        source: "familiar-coder",
         model,
         tools_used: [...new Set(trace.toolCalls.map(tc => tc.name))],
         num_tool_calls: trace.toolCalls.length,

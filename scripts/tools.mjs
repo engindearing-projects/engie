@@ -413,7 +413,7 @@ async function executeMemoryStore(args) {
   if (!type || !summary) return { ok: false, result: "Error: type and summary are required" };
 
   try {
-    const id = db.addObservation({ type, summary, details, project, tags, source: "engie-coder" });
+    const id = db.addObservation({ type, summary, details, project, tags, source: "familiar" });
     return { ok: true, result: `Stored observation ${id}: ${summary}` };
   } catch (err) {
     return { ok: false, result: `Memory store error: ${err.message}` };

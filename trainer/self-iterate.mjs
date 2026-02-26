@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 // The Forge — Self-Iteration Runner
-// Runs engie-coder through an agent-style loop:
+// Runs familiar-coder through an agent-style loop:
 //   1. Model generates code for a task
 //   2. Runner executes tests
 //   3. If tests fail → feeds errors back to model
@@ -27,7 +27,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BENCHMARKS_FILE = resolve(__dirname, "benchmarks", "coding-tasks.jsonl");
 const TRACES_DIR = resolve(__dirname, "data", "traces");
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const DEFAULT_MODEL = "engie-coder:latest";
+const DEFAULT_MODEL = "familiar-coder:latest";
 const DEFAULT_MAX_ITERS = 3;
 
 if (!existsSync(TRACES_DIR)) {
@@ -198,7 +198,7 @@ function formatTestFeedback(testResults) {
 
 async function iterateOnTask(task) {
   const systemPrompt =
-    "You are Engie, an expert coding assistant. Write clean, correct code. " +
+    "You are Familiar, an expert coding assistant. Write clean, correct code. " +
     "When given test failures, analyze the errors carefully and fix your code. " +
     "Always output your complete solution in a single fenced code block.";
 

@@ -11,7 +11,7 @@
 //   4. Assistant reasoning + next tool_use (or final answer)
 //   ... repeat until done
 //
-// This is the missing piece for training engie-coder to handle the agent loop.
+// This is the missing piece for training familiar-coder to handle the agent loop.
 
 import { existsSync, mkdirSync, appendFileSync } from "fs";
 import { resolve, dirname } from "path";

@@ -91,7 +91,7 @@ def main():
 
     fused_path = FUSED_DIR / version
     GGUF_DIR.mkdir(parents=True, exist_ok=True)
-    model_prefix = DOMAIN.get("model_prefix", "engie-coder")
+    model_prefix = DOMAIN.get("model_prefix", "familiar-coder")
     gguf_f16 = GGUF_DIR / f"{model_prefix}-{version}-f16.gguf"
     gguf_quant = GGUF_DIR / f"{model_prefix}-{version}-{args.quant}.gguf"
 
@@ -185,7 +185,7 @@ def main():
 
 def _deploy_from_gguf(version, gguf_path):
     """Deploy to Ollama from a GGUF file."""
-    model_prefix = DOMAIN.get("model_prefix", "engie-coder")
+    model_prefix = DOMAIN.get("model_prefix", "familiar-coder")
     system_prompt = DOMAIN.get("deploy_system_prompt", DOMAIN.get("system_prompt", "You are a helpful assistant."))
     ollama_cfg = DOMAIN.get("ollama", {})
     temp = ollama_cfg.get("temperature", 0.7)
@@ -225,7 +225,7 @@ PARAMETER num_ctx {num_ctx}
 
 def _deploy_from_safetensors(version, fused_path):
     """Fallback: Deploy directly from safetensors (larger model, ~15GB)."""
-    model_prefix = DOMAIN.get("model_prefix", "engie-coder")
+    model_prefix = DOMAIN.get("model_prefix", "familiar-coder")
     system_prompt = DOMAIN.get("deploy_system_prompt", DOMAIN.get("system_prompt", "You are a helpful assistant."))
     ollama_cfg = DOMAIN.get("ollama", {})
     temp = ollama_cfg.get("temperature", 0.7)
@@ -286,7 +286,7 @@ def _update_db(version, ollama_tag, gguf_path):
     except Exception:
         pass
 
-    model_prefix = DOMAIN.get("model_prefix", "engie-coder")
+    model_prefix = DOMAIN.get("model_prefix", "familiar-coder")
     print(f"\n  Deployment complete! {model_prefix}:{version} is now active.")
 
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 The Forge — Model Evaluation
-Runs benchmark tasks against the current engie-coder model via Ollama API.
+Runs benchmark tasks against the current familiar-coder model via Ollama API.
 Scores: syntax validity (25pts), test passing (40pts), similarity to gold (20pts), completeness (15pts).
 
 Usage:
-    python scripts/evaluate.py [--model engie-coder:latest] [--version v1]
+    python scripts/evaluate.py [--model familiar-coder:latest] [--version v1]
 """
 
 import json

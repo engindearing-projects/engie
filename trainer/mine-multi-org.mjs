@@ -21,7 +21,7 @@ if (!existsSync(RAW_DIR)) mkdirSync(RAW_DIR, { recursive: true });
 
 const SOURCES = [
   { name: "jfuginay", maxRepos: 20, maxItems: 6 },
-  { name: "engindearing-projects", maxRepos: 20, maxItems: 6 },
+  { name: "familiar-run", maxRepos: 20, maxItems: 6 },
   { name: "BloomTech-Labs", maxRepos: 200, maxItems: 15 },
 ];
 
@@ -74,9 +74,9 @@ async function callOllama(prompt) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "engie-coder:latest",
+        model: "familiar-coder:latest",
         messages: [
-          { role: "system", content: "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations." },
+          { role: "system", content: "You are Familiar, an expert coding assistant. Write clean, well-structured code with clear explanations." },
           { role: "user", content: prompt },
         ],
         stream: false,
@@ -115,7 +115,7 @@ async function collectPair(prompt, source) {
     complexity_score: null, routed_to: "mine", source,
     claude_response: claude.response, claude_duration_ms: claude.durationMs,
     local_response: local.response, local_duration_ms: local.durationMs,
-    local_model: "engie-coder:latest",
+    local_model: "familiar-coder:latest",
   };
 
   appendFileSync(todayFile(), JSON.stringify(pair) + "\n");
@@ -128,7 +128,7 @@ async function collectPair(prompt, source) {
       claude_response_length: claude.response.length,
       local_response_length: local.response.length,
       claude_duration_ms: claude.durationMs, local_duration_ms: local.durationMs,
-      local_model: "engie-coder:latest", has_code: true,
+      local_model: "familiar-coder:latest", has_code: true,
     });
   } catch {}
 

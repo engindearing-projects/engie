@@ -1,15 +1,16 @@
 {
-  "name": "cozyterm-cli",
-  "version": "0.6.0",
+  "name": "familiar-cli",
+  "version": "0.7.0",
   "type": "module",
-  "description": "CozyTerm — your AI project manager in the terminal, powered by Engie",
+  "description": "Get your familiar — AI that lives in your terminal",
   "bin": {
-    "cozy": "./bin/cozy.mjs",
-    "engie": "./bin/cozy.mjs"
+    "familiar": "./bin/familiar.mjs",
+    "engie": "./bin/familiar.mjs",
+    "cozy": "./bin/cozy.mjs"
   },
   "scripts": {
-    "start": "bun bin/cozy.mjs",
-    "dev": "bun --watch bin/cozy.mjs"
+    "start": "bun bin/familiar.mjs",
+    "dev": "bun --watch bin/familiar.mjs"
   },
   "engines": {
     "bun": ">=1.0.0"

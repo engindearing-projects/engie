@@ -35,7 +35,7 @@ const DEFAULT_SOURCES = [
   // Our orgs — deep mining, we know the code quality
   { name: "MarekHealth", maxRepos: 20, maxPRs: 8 },
   { name: "jfuginay", maxRepos: 15, maxPRs: 6 },
-  { name: "engindearing-projects", maxRepos: 10, maxPRs: 6 },
+  { name: "familiar-run", maxRepos: 10, maxPRs: 6 },
   // BloomTech — massive student project org, tons of merged PRs
   { name: "BloomTech-Labs", maxRepos: 200, maxPRs: 10 },
   // High-quality open source
@@ -115,12 +115,12 @@ async function callOllama(prompt) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "engie-coder:latest",
+        model: "familiar-coder:latest",
         messages: [
           {
             role: "system",
             content:
-              "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations.",
+              "You are Familiar, an expert coding assistant. Write clean, well-structured code with clear explanations.",
           },
           { role: "user", content: prompt },
         ],
@@ -304,7 +304,7 @@ async function collectGroundTruthPair(prompt, realDiff, source, metadata = {}) {
     local_response: local.response,
     local_duration_ms: local.durationMs,
     local_score: localScore,
-    local_model: "engie-coder:latest",
+    local_model: "familiar-coder:latest",
     // Metadata from the PR/commit
     ...metadata,
   };
@@ -324,7 +324,7 @@ async function collectGroundTruthPair(prompt, realDiff, source, metadata = {}) {
       local_response_length: local.response?.length ?? 0,
       claude_duration_ms: claude.durationMs,
       local_duration_ms: local.durationMs,
-      local_model: "engie-coder:latest",
+      local_model: "familiar-coder:latest",
       has_code: claudeScore.hasCode || localScore.hasCode,
     });
   } catch {}

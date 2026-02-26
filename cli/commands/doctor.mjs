@@ -31,7 +31,7 @@ export async function run({ args } = {}) {
   let fixed = 0;
 
   console.log();
-  console.log(chalk.bold("  CozyTerm Doctor"));
+  console.log(chalk.bold("  Familiar Doctor"));
   console.log();
 
   // ── 1. Prerequisites ──────────────────────────────

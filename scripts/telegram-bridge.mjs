@@ -42,16 +42,16 @@ const DEFAULT_COMMANDS = {
   claude: process.env.TERM_CLAUDE_CMD || "claude",
   codex: process.env.TERM_CODEX_CMD || "codex",
   engie: process.env.TERM_ENGIE_CMD || `bun ${resolve(PROJECT_DIR, "cli", "bin", "engie.mjs")}`,
-  ollama: process.env.TERM_OLLAMA_CMD || "ollama run engie-coder:latest",
+  ollama: process.env.TERM_OLLAMA_CMD || "ollama run familiar-coder:latest",
 };
 
 const PREPROCESS_ENABLED = process.env.TG_PREPROCESS !== "0";
 const PREPROCESS_PASSES = Math.max(1, parseInt(process.env.TG_PREPROCESS_PASSES || "2", 10));
-const PREPROCESS_MODELS = (process.env.TG_PREPROCESS_MODELS || "engie-coder:latest,llama3.2")
+const PREPROCESS_MODELS = (process.env.TG_PREPROCESS_MODELS || "familiar-coder:latest,llama3.2")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const PREPROCESS_JUDGE_MODEL = process.env.TG_PREPROCESS_JUDGE || PREPROCESS_MODELS[0] || "engie-coder:latest";
+const PREPROCESS_JUDGE_MODEL = process.env.TG_PREPROCESS_JUDGE || PREPROCESS_MODELS[0] || "familiar-coder:latest";
 const PREPROCESS_AB = process.env.TG_PREPROCESS_AB === "1";
 const PREPROCESS_AB_HARD_ONLY = process.env.TG_PREPROCESS_AB_HARD_ONLY !== "0";
 
@@ -59,7 +59,7 @@ const COMPARE_HARD_ONLY = process.env.TG_COMPARE_HARD_ONLY !== "0";
 const COMPARE_ENABLE_CLAUDE = process.env.TG_COMPARE_CLAUDE !== "0";
 const COMPARE_ENABLE_CODEX = process.env.TG_COMPARE_CODEX !== "0";
 const COMPARE_ENABLE_OLLAMA = process.env.TG_COMPARE_OLLAMA !== "0";
-const COMPARE_LOCAL_MODELS = (process.env.TG_COMPARE_LOCAL_MODELS || "engie-coder:latest,llama3.2")
+const COMPARE_LOCAL_MODELS = (process.env.TG_COMPARE_LOCAL_MODELS || "familiar-coder:latest,llama3.2")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);

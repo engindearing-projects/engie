@@ -3,7 +3,7 @@
 // The Forge — Top Repos Ground-Truth Miner
 // Discovers top-starred GitHub repos per language and mines merged PRs.
 // Merged diff = gold standard, PR title+body = prompt.
-// Feeds to both Claude and engie-coder, scores against gold, stores for training.
+// Feeds to both Claude and familiar-coder, scores against gold, stores for training.
 //
 // Usage:
 //   bun ~/engie/trainer/mine-top-repos.mjs [--langs js,py,go] [--max-repos 100] [--max-prs 5] [--refresh]
@@ -134,12 +134,12 @@ async function callOllama(prompt) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "engie-coder:latest",
+        model: "familiar-coder:latest",
         messages: [
           {
             role: "system",
             content:
-              "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations.",
+              "You are Familiar, an expert coding assistant. Write clean, well-structured code with clear explanations.",
           },
           { role: "user", content: prompt },
         ],
@@ -305,7 +305,7 @@ async function collectGroundTruthPair(prompt, realDiff, source, metadata = {}) {
     local_response: local.response,
     local_duration_ms: local.durationMs,
     local_score: localScore,
-    local_model: "engie-coder:latest",
+    local_model: "familiar-coder:latest",
     ...metadata,
   };
 
@@ -323,7 +323,7 @@ async function collectGroundTruthPair(prompt, realDiff, source, metadata = {}) {
       local_response_length: local.response?.length ?? 0,
       claude_duration_ms: claude.durationMs,
       local_duration_ms: local.durationMs,
-      local_model: "engie-coder:latest",
+      local_model: "familiar-coder:latest",
       has_code: claudeScore.hasCode || localScore.hasCode,
     });
   } catch {}

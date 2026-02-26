@@ -3,10 +3,10 @@
   "name": "Healthcare Assistant",
   "description": "Clinical documentation, treatment protocols, patient communication, and medical coding",
   "base_model": "Qwen2.5-7B-Instruct-4bit",
-  "model_prefix": "engie-health",
+  "model_prefix": "familiar-health",
 
   "system_prompt": "You are a healthcare documentation assistant. Write clear, accurate clinical notes and patient communications. Follow standard medical terminology and documentation practices. Always include appropriate disclaimers about professional medical judgment.",
-  "deploy_system_prompt": "You are a healthcare AI assistant built by Engindearing. Produce accurate clinical documentation following standard medical terminology. Include appropriate disclaimers.",
+  "deploy_system_prompt": "You are a healthcare AI assistant from familiar.run. Produce accurate clinical documentation following standard medical terminology. Include appropriate disclaimers.",
 
   "data": {
     "min_response_length": 100,

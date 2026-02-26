@@ -310,7 +310,7 @@ async function handleChatSend(ws, reqId, params) {
       // ── 5. Branch on role ──
       const responseStart = Date.now();
       if (role === "coding" || role === "tools") {
-        // Tool loop for engie-coder
+        // Tool loop for familiar-coder
         const loopResult = await runToolLoop({
           prompt: message,
           systemPrompt: fullSystemPrompt,
@@ -585,8 +585,8 @@ console.log(`  config:       ${configPath || "none"}`);
 console.log(`  sessions TTL: ${SESSION_TTL_MS / 60000} min`);
 console.log("");
 console.log("Model routing (familiar-* with stock fallbacks):");
-console.log("  coding → familiar-coder:latest / engie-coder:latest");
-console.log("  tools  → familiar-tools:latest / engie-coder:latest");
+console.log("  coding → familiar-coder:latest / familiar-coder:latest");
+console.log("  tools  → familiar-tools:latest / familiar-coder:latest");
 console.log("  reason → familiar-reason:latest / glm-4.7-flash:latest");
 console.log("  chat   → familiar-chat:latest / qwen2.5:7b-instruct");
 console.log(`  claude → explicit trigger only (${bin ? "available" : "NOT FOUND"})`);

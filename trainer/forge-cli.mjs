@@ -26,7 +26,7 @@ const HELP = `
     serve               Start the model serving API for external access
     eval                Run benchmark on current model
     iterate             Self-iteration: run model on benchmarks, fix until tests pass
-    compare "prompt"    Side-by-side Claude vs engie-coder
+    compare "prompt"    Side-by-side Claude vs familiar-coder
     data                Collection stats
     mine                Run expanded data miner (distillation pairs)
     mine-gt             Run ground-truth miner (real merged diffs)
@@ -463,7 +463,7 @@ async function cmdCompare(prompt) {
   console.log(chalk.dim(`  Duration: ${claudeResult.durationMs}ms`));
 
   console.log("");
-  console.log(chalk.yellow("  ─── engie-coder ───"));
+  console.log(chalk.yellow("  ─── familiar-coder ───"));
   console.log(localResult.response || chalk.dim("  (no response)"));
   console.log(chalk.dim(`  Duration: ${localResult.durationMs}ms`));
 
@@ -487,7 +487,7 @@ async function cmdCompare(prompt) {
         claude_duration_ms: claudeResult.durationMs,
         local_response: localResult.response,
         local_duration_ms: localResult.durationMs,
-        local_model: "engie-coder:latest",
+        local_model: "familiar-coder:latest",
       };
       const date = new Date().toISOString().slice(0, 10);
       const rawFile = resolve(TRAINER_DIR, "data", "raw", `${date}.jsonl`);
@@ -504,7 +504,7 @@ async function cmdCompare(prompt) {
         local_response_length: localResult.response.length,
         claude_duration_ms: claudeResult.durationMs,
         local_duration_ms: localResult.durationMs,
-        local_model: "engie-coder:latest",
+        local_model: "familiar-coder:latest",
         has_code: /```/.test(claudeResult.response),
       });
       console.log(chalk.green(`  Pair saved to data/raw/${date}.jsonl`));
@@ -647,7 +647,7 @@ async function cmdRollback() {
   if (previous.ollama_tag) {
     const { execSync } = await import("child_process");
     try {
-      execSync(`ollama cp ${previous.ollama_tag} engie-coder:latest`, { stdio: "inherit" });
+      execSync(`ollama cp ${previous.ollama_tag} familiar-coder:latest`, { stdio: "inherit" });
       setActiveVersion(previous.version);
       console.log(chalk.green(`\n  Rolled back to ${previous.version}`));
     } catch (err) {

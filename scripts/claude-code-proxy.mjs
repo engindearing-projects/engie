@@ -106,7 +106,7 @@ const activeJobs = new Map(); // jobId -> { process, startedAt, prompt }
 const router = new Router({
   proxyUrl: `http://127.0.0.1:${PORT}`,
   ollamaUrl: "http://localhost:11434",
-  localModel: "engie-coder:latest",
+  localModel: "familiar-coder:latest",
 });
 
 // ── Session Tracking (multi-turn) ────────────────────────────────────────────
@@ -163,7 +163,7 @@ function fireDualComparison({ prompt, category, details, claudeText, claudeDurat
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer ollama" },
         body: JSON.stringify({
-          model: "engie-coder:latest",
+          model: "familiar-coder:latest",
           messages: [
             { role: "system", content: "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations." },
             { role: "user", content: prompt },
@@ -209,7 +209,7 @@ async function forwardToOllama(messages, stream = false) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer ollama" },
     body: JSON.stringify({
-      model: "engie-coder:latest",
+      model: "familiar-coder:latest",
       messages,
       stream,
     }),
@@ -533,7 +533,7 @@ const server = createServer(async (req, res) => {
     const isFollowUp = !!existingClaudeSession && nonSystemMessages.length > 1;
 
     // ── Training Mode ──────────────────────────────────────────────────
-    // Dual-send: Claude (primary, shown to user) + engie-coder (background comparison)
+    // Dual-send: Claude (primary, shown to user) + familiar-coder (background comparison)
     if (TRAINING_MODE) {
       const intakeCategory = null;
       const intakeDetails = null;
@@ -582,7 +582,7 @@ const server = createServer(async (req, res) => {
         if (result.session_id) setSession(sessionKey, result.session_id);
         const claudeText = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
 
-        // Fire-and-forget: background comparison to engie-coder
+        // Fire-and-forget: background comparison to familiar-coder
         fireDualComparison({ prompt, category: intakeCategory, details: intakeDetails, claudeText, claudeDuration, sessionKey, complexityScore: complexity });
 
         if (stream) {
@@ -627,7 +627,7 @@ const server = createServer(async (req, res) => {
         const loopResult = await runToolLoop({
           prompt: lastUserMessage,
           systemPrompt: routeResult.systemPrompt || (systemPrompt !== ENGIE_SYSTEM_PREAMBLE ? systemPrompt : ""),
-          model: "engie-coder:latest",
+          model: "familiar-coder:latest",
           maxIterations: 10,
           maxToolCalls: 25,
           timeoutMs: 120_000,
@@ -638,13 +638,13 @@ const server = createServer(async (req, res) => {
 
         if (stream) {
           res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-coder", choices: [{ index: 0, delta: { role: "assistant", content: responseText }, finish_reason: null }] })}\n\n`);
-          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-coder", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-coder", choices: [{ index: 0, delta: { role: "assistant", content: responseText }, finish_reason: null }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-coder", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
           res.write("data: [DONE]\n\n");
           res.end();
         } else {
           return jsonResponse(res, 200, {
-            id, object: "chat.completion", created, model: "engie-coder",
+            id, object: "chat.completion", created, model: "familiar-coder",
             choices: [{ index: 0, message: { role: "assistant", content: responseText }, finish_reason: "stop" }],
             usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
             _meta: { iterations: loopResult.iterations, toolCalls: loopResult.toolCalls.length, finishReason: loopResult.finishReason, durationMs: loopResult.totalDurationMs },

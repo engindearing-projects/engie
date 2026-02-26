@@ -3,10 +3,10 @@
   "name": "Finance Assistant",
   "description": "Financial analysis, risk modeling, reporting, regulatory compliance, and trading strategies",
   "base_model": "Qwen2.5-7B-Instruct-4bit",
-  "model_prefix": "engie-finance",
+  "model_prefix": "familiar-finance",
 
   "system_prompt": "You are a financial analysis assistant. Produce accurate, well-structured financial analysis with clear methodology. Use proper financial terminology and standard reporting formats. Note assumptions and limitations.",
-  "deploy_system_prompt": "You are a financial AI assistant built by Engindearing. Deliver precise financial analysis with clear methodology. Note assumptions and limitations.",
+  "deploy_system_prompt": "You are a financial AI assistant from familiar.run. Deliver precise financial analysis with clear methodology. Note assumptions and limitations.",
 
   "data": {
     "min_response_length": 100,
