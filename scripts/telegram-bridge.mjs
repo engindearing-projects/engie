@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Telegram Bridge — unified Telegram <-> Engie gateway + terminal sessions.
 // - Receives Telegram messages via long-polling
-// - Routes normal chat to Engie (OpenClaw gateway)
+// - Routes normal chat to Engie (CozyTerm gateway)
 // - Starts/controls local terminal sessions (claude/codex/engie/ollama)
 // - Sends terminal output + input prompts back to Telegram
 
@@ -24,7 +24,7 @@ const PROJECT_DIR = resolve(__dirname, "..");
 const CONFIG_PATH = findConfig() || (
   existsSync(resolve(PROJECT_DIR, "config", "cozyterm.json"))
     ? resolve(PROJECT_DIR, "config", "cozyterm.json")
-    : resolve(PROJECT_DIR, "config", "openclaw.json")
+    : resolve(PROJECT_DIR, "config", "cozyterm.json")
 );
 const ACTIVITY_URL = process.env.ACTIVITY_URL || "http://localhost:18790";
 const POLL_MS = parseInt(process.env.TG_BRIDGE_POLL_MS || "2000", 10);
@@ -108,7 +108,7 @@ function chunkText(text, maxLen = MAX_TG_TEXT) {
 // ── Config + Telegram ─────────────────────────────────────────────────────
 
 let BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.TG_BRIDGE_TOKEN;
-let GW_TOKEN = process.env.COZYTERM_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
+let GW_TOKEN = process.env.COZYTERM_GATEWAY_TOKEN || process.env.COZYTERM_GATEWAY_TOKEN;
 let GW_PORT = 18789;
 let TG_ALLOWLIST = (process.env.TG_BRIDGE_ALLOWLIST || "").split(",").map((s) => s.trim()).filter(Boolean);
 let TELEGRAM_PLUGIN_ENABLED = null;
@@ -1002,7 +1002,7 @@ async function sendViaGateway(sessionKey, message) {
           id: reqId,
           method: "connect",
           params: {
-            client: { id: "openclaw-control-ui" },
+            client: { id: "cozyterm-ui" },
             auth: GW_TOKEN ? { token: GW_TOKEN } : undefined,
           },
         }));

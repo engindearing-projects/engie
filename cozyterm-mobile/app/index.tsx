@@ -6,7 +6,7 @@ import { MessageList } from '../src/components/MessageList';
 import { ChatInput } from '../src/components/ChatInput';
 import { ConnectionBadge } from '../src/components/ConnectionBadge';
 import { RecapBanner } from '../src/components/RecapBanner';
-import { useOpenClaw } from '../src/hooks/useOpenClaw';
+import { useGateway } from '../src/hooks/useGateway';
 import { useActivitySync } from '../src/hooks/useActivitySync';
 import { colors } from '../src/theme/colors';
 
@@ -20,7 +20,7 @@ const WELCOME_MESSAGE = {
 };
 
 export default function ChatScreen() {
-  const { messages, streamText, busy, connectionState, error, sendMessage, reconnect } = useOpenClaw();
+  const { messages, streamText, busy, connectionState, error, sendMessage, reconnect } = useGateway();
   const { unread, logActivity, markRead } = useActivitySync();
   const navigation = useNavigation();
   const [onboarded, setOnboarded] = useState<boolean | null>(null);

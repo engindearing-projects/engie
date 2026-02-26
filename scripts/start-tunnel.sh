@@ -6,7 +6,7 @@ set -euo pipefail
 # and updates the Vercel env var so wyliewhimsy.co can reach engie.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="${HOME}/.openclaw/logs"
+LOG_DIR="${HOME}/.cozyterm/logs"
 TUNNEL_LOG="${LOG_DIR}/cloudflared.log"
 URL_FILE="${LOG_DIR}/tunnel-url.txt"
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { colors } from '../theme/colors';
-import { useOpenClaw } from '../hooks/useOpenClaw';
+import { useGateway } from '../hooks/useGateway';
 import { ObservationCard, type Observation } from '../components/ObservationCard';
 import { PresetButton } from '../components/PresetButton';
 import styles from './MemoryPage.module.css';
@@ -51,7 +51,7 @@ function tryParseProfile(text: string): ProfileData | null {
 }
 
 export default function MemoryPage() {
-  const { messages, busy, sendMessage } = useOpenClaw();
+  const { messages, busy, sendMessage } = useGateway();
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [observations, setObservations] = useState<Observation[]>([]);

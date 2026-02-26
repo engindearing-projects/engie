@@ -12,7 +12,7 @@ const PROJECT_DIR = resolve(__dirname, "..");
 const CONFIG_PATH = findConfig() || (
   existsSync(resolve(PROJECT_DIR, "config", "cozyterm.json"))
     ? resolve(PROJECT_DIR, "config", "cozyterm.json")
-    : resolve(PROJECT_DIR, "config", "openclaw.json")
+    : resolve(PROJECT_DIR, "config", "cozyterm.json")
 );
 
 // Resolve bot token and default chat ID

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { colors } from '../theme/colors';
 import { getConnectionConfig, saveConnectionConfig } from '../services/store';
-import { OpenClawClient } from '../services/OpenClawClient';
+import { GatewayClient } from '../services/GatewayClient';
 import styles from './SettingsPage.module.css';
 
 type FeedbackType = 'success' | 'error' | 'info';
@@ -41,7 +41,7 @@ export default function SettingsPage() {
     setTesting(true);
     setFeedback(null);
 
-    const client = new OpenClawClient(
+    const client = new GatewayClient(
       host.trim(),
       parseInt(port.trim() || '18789', 10),
       token.trim()

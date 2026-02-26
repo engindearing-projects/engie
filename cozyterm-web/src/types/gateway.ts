@@ -1,4 +1,4 @@
-// TypeScript types for the OpenClaw gateway WebSocket protocol
+// TypeScript types for the CozyTerm gateway WebSocket protocol
 // Ported from engie-mobile — identical protocol, browser-native APIs
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected';
@@ -107,7 +107,7 @@ export type GatewayInbound =
 
 // --- Client callbacks ---
 
-export interface OpenClawCallbacks {
+export interface CozyTermCallbacks {
   onConnected?: () => void;
   onDisconnected?: () => void;
   onAgent?: (payload: AgentEvent['payload']) => void;

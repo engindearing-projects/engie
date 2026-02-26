@@ -31,8 +31,6 @@ export const CLIENT_ID = "cozyterm-ui";
 export const CLIENT_VERSION = "1.0.0";
 export const PROTOCOL_VERSION = 3;
 
-/** @deprecated Use CLIENT_ID — kept for backward compat */
-export const LEGACY_CLIENT_ID = "openclaw-control-ui";
 
 export const CONNECT_TIMEOUT_MS = 15_000;
 export const REQUEST_TIMEOUT_MS = 10_000;

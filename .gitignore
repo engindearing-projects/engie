@@ -9,7 +9,7 @@ bun.lockb
 *.log
 logs/
 
-# OpenClaw runtime state
+# CozyTerm runtime state
 config/exec-approvals.json
 config/update-check.json
 config/sessions.json
@@ -20,8 +20,8 @@ config/devices/
 config/agents/
 config/canvas/
 config/telegram/
-config/openclaw.json.bak*
-config/openclaw.json
+config/cozyterm.json.bak*
+config/cozyterm.json
 config/identity/
 config/cron
 config/memory
@@ -33,7 +33,7 @@ config/mcp-tools.json
 cron/runs/
 cron/jobs.json.bak
 
-# Workspace runtime (all content is OpenClaw state, not source)
+# Workspace runtime (all content is CozyTerm state, not source)
 workspace/
 
 # Memory & profile (user data, not source)

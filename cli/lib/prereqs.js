@@ -63,8 +63,6 @@ export function checkGateway() {
   }
 }
 
-/** @deprecated Use checkGateway() */
-export const checkOpenClaw = checkGateway;
 
 /**
  * Check Claude Code CLI.

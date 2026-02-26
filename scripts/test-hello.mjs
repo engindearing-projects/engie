@@ -8,9 +8,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const configPath = existsSync(resolve(__dirname, "..", "config", "cozyterm.json"))
-  ? resolve(__dirname, "..", "config", "cozyterm.json")
-  : resolve(__dirname, "..", "config", "openclaw.json");
+const configPath = resolve(__dirname, "..", "config", "cozyterm.json");
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const GW_PORT = config.gateway?.port ?? 18789;
 const GW_TOKEN = config.gateway?.auth?.token;

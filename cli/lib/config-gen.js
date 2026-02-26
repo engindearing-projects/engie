@@ -1,5 +1,5 @@
 // Config file generation for CozyTerm setup wizard.
-// Generates openclaw.json, .env, and mcp-tools.json from dynamic paths and user input.
+// Generates cozyterm.json, .env, and mcp-tools.json from dynamic paths and user input.
 
 import { randomBytes } from "crypto";
 import { execSync } from "child_process";
@@ -39,7 +39,7 @@ function whichSync(name) {
 }
 
 /**
- * Generate a working openclaw.json config object.
+ * Generate a working cozyterm.json config object.
  * All paths resolved dynamically at call time.
  *
  * @param {{ token: string }} opts
@@ -131,7 +131,7 @@ export function generateEnvFile({ anthropicKey, gatewayToken, slackToken, telegr
     "",
     `ANTHROPIC_API_KEY=${anthropicKey}`,
     `COZYTERM_GATEWAY_TOKEN=${gatewayToken}`,
-    `OPENCLAW_GATEWAY_TOKEN=${gatewayToken}`,
+    `COZYTERM_GATEWAY_TOKEN=${gatewayToken}`,
     "",
   ];
 

@@ -13,7 +13,7 @@ import { useNavigation, useFocusEffect } from 'expo-router';
 import { ConnectionBadge } from '../src/components/ConnectionBadge';
 import { ObservationCard, type Observation } from '../src/components/ObservationCard';
 import { PresetButton } from '../src/components/PresetButton';
-import { useOpenClaw } from '../src/hooks/useOpenClaw';
+import { useGateway } from '../src/hooks/useGateway';
 import { colors } from '../src/theme/colors';
 
 type PresetKey = 'recent' | 'blockers' | 'decisions' | 'profile';
@@ -31,7 +31,7 @@ interface ProfileData {
 }
 
 export default function MemoryScreen() {
-  const { messages, busy, connectionState, sendMessage, reconnect } = useOpenClaw();
+  const { messages, busy, connectionState, sendMessage, reconnect } = useGateway();
   const navigation = useNavigation();
 
   const [activePreset, setActivePreset] = useState<PresetKey | null>(null);

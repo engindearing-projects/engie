@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-// CozyTerm Gateway — Bun WebSocket server replacing OpenClaw.
+// CozyTerm Gateway — Bun WebSocket server for agent dispatch.
 // Speaks the same protocol as cli/src/gateway.mjs expects:
 //   connect.challenge → connect → chat.send / chat.history / sessions.list / health / config.get
 //
@@ -33,7 +33,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 function loadConfig() {
   const candidates = [
     resolve(PROJECT_DIR, "config", "cozyterm.json"),
-    resolve(PROJECT_DIR, "config", "openclaw.json"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) {
@@ -49,12 +48,11 @@ const { config, path: configPath } = loadConfig();
 const PORT = parseInt(process.env.GATEWAY_PORT || String(config.gateway?.port ?? 18789), 10);
 const AUTH_TOKEN = config.gateway?.auth?.token
   || process.env.COZYTERM_GATEWAY_TOKEN
-  || process.env.OPENCLAW_GATEWAY_TOKEN;
+;
 const BIND = config.gateway?.bind || "lan";
 
-// Accepted client IDs for backward compat
+// Accepted client IDs
 const ACCEPTED_CLIENT_IDS = new Set([
-  "openclaw-control-ui",
   "cozyterm-ui",
 ]);
 

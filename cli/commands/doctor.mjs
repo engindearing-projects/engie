@@ -121,7 +121,7 @@ export async function run({ args } = {}) {
       issues++;
     }
   } else {
-    fail("Config: no gateway config found (cozyterm.json or openclaw.json)");
+    fail("Config: no gateway config found (cozyterm.json)");
     issues++;
   }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { OpenClawClient } from '../services/OpenClawClient';
+import { GatewayClient } from '../services/GatewayClient';
 import type { Message, ConnectionState, AgentEvent, ChatEvent } from '../types/gateway';
 
 const STORE_KEY_HOST = 'engie_gw_host';
@@ -14,7 +14,7 @@ function matchesSession(eventKey: string): boolean {
 
 let msgCounter = 0;
 
-export interface UseOpenClawReturn {
+export interface UseGatewayReturn {
   messages: Message[];
   streamText: string;
   busy: boolean;
@@ -25,14 +25,14 @@ export interface UseOpenClawReturn {
   clearMessages: () => void;
 }
 
-export function useOpenClaw(): UseOpenClawReturn {
+export function useGateway(): UseGatewayReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamText, setStreamText] = useState('');
   const [busy, setBusy] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [error, setError] = useState<string | null>(null);
 
-  const clientRef = useRef<OpenClawClient | null>(null);
+  const clientRef = useRef<GatewayClient | null>(null);
   const accumulatedRef = useRef('');
 
   const setupClient = useCallback(async () => {
@@ -52,7 +52,7 @@ export function useOpenClaw(): UseOpenClawReturn {
       return;
     }
 
-    const client = new OpenClawClient(host, parseInt(port || '18789', 10), token);
+    const client = new GatewayClient(host, parseInt(port || '18789', 10), token);
 
     client.callbacks = {
       onConnected: () => {

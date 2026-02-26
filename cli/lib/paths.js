@@ -2,7 +2,7 @@
 // Every module that needs a path imports from here — no hardcoded paths anywhere else.
 
 import { resolve, join } from "path";
-import { existsSync, mkdirSync, symlinkSync, readlinkSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 
 const HOME = process.env.HOME || "/tmp";
 
@@ -14,7 +14,7 @@ export function cozyHome() {
 /** @deprecated Use cozyHome() — kept for backward compatibility */
 export const engieHome = cozyHome;
 
-/** OpenClaw config dir (inside cozy home) */
+/** Config dir (inside cozy home) */
 export function configDir() {
   return join(cozyHome(), "config");
 }
@@ -66,14 +66,9 @@ export function ensureDirs() {
 
 /** Gateway config file path */
 export function configPath() {
-  // Prefer cozyterm.json, fall back to openclaw.json
-  const cozy = join(configDir(), "cozyterm.json");
-  if (existsSync(cozy)) return cozy;
-  return join(configDir(), "openclaw.json");
+  return join(configDir(), "cozyterm.json");
 }
 
-/** @deprecated Use configPath() */
-export const openclawConfigPath = configPath;
 
 /** Env file path */
 export function envFilePath() {
@@ -101,8 +96,8 @@ export function initStatePath() {
 }
 
 /**
- * Resolve the OpenClaw config file — checks multiple locations.
- * Priority: $COZYTERM_CONFIG > $ENGIE_CONFIG > ~/.cozyterm/config/ > ~/.engie/config/ > ~/.openclaw/ > legacy ~/engie/config/
+ * Resolve the gateway config file — checks multiple locations.
+ * Priority: $COZYTERM_CONFIG > $ENGIE_CONFIG > ~/.cozyterm/config/ > ~/.engie/config/ > legacy ~/engie/config/
  */
 export function findConfig() {
   const cozyPath = process.env.COZYTERM_CONFIG;
@@ -113,12 +108,8 @@ export function findConfig() {
 
   const candidates = [
     join(configDir(), "cozyterm.json"),
-    join(configDir(), "openclaw.json"),
     resolve(HOME, ".engie/config/cozyterm.json"),
-    resolve(HOME, ".engie/config/openclaw.json"),
-    resolve(HOME, ".openclaw/openclaw.json"),
     resolve(HOME, "engie/config/cozyterm.json"),
-    resolve(HOME, "engie/config/openclaw.json"),
     "/etc/cozyterm/cozyterm.json",
   ];
 
@@ -128,30 +119,6 @@ export function findConfig() {
   return null;
 }
 
-/**
- * Ensure ~/.openclaw symlink points to ~/.cozyterm/config for OpenClaw compatibility.
- * Only creates the symlink if it doesn't exist or points elsewhere.
- */
-export function ensureOpenclawSymlink() {
-  const oclawDir = resolve(HOME, ".openclaw");
-  const target = configDir();
-
-  if (existsSync(oclawDir)) {
-    try {
-      const current = readlinkSync(oclawDir);
-      if (resolve(current) === resolve(target)) return; // already correct
-    } catch {
-      // exists but not a symlink — leave it alone
-      return;
-    }
-  }
-
-  try {
-    symlinkSync(target, oclawDir);
-  } catch {
-    // non-fatal — user may need to fix manually
-  }
-}
 
 /** Return all paths as a plain object (useful for config generation / debugging) */
 export function configPaths() {

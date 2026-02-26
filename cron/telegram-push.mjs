@@ -8,9 +8,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = existsSync(resolve(__dirname, "../config/cozyterm.json"))
-  ? resolve(__dirname, "../config/cozyterm.json")
-  : resolve(__dirname, "../config/openclaw.json");
+const CONFIG_PATH = resolve(__dirname, "../config/cozyterm.json");
 const ACTIVITY_URL = process.env.ACTIVITY_URL || "http://localhost:18790";
 
 // Read bot token from gateway config (same source as gateway)

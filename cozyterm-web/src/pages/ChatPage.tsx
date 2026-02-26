@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { colors } from '../theme/colors';
-import { useOpenClaw } from '../hooks/useOpenClaw';
+import { useGateway } from '../hooks/useGateway';
 import { useActivitySync } from '../hooks/useActivitySync';
 import { isOnboarded, setOnboarded } from '../services/store';
 import { ConnectionBadge } from '../components/ConnectionBadge';
@@ -19,7 +19,7 @@ const WELCOME_MESSAGE: Message = {
 };
 
 export default function ChatPage() {
-  const { messages, streamText, busy, connectionState, error, sendMessage } = useOpenClaw();
+  const { messages, streamText, busy, connectionState, error, sendMessage } = useGateway();
   const { unread, logActivity, markRead } = useActivitySync();
 
   const [onboarded, setOnboardedState] = useState(() => isOnboarded());

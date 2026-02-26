@@ -1,4 +1,4 @@
-// TypeScript types for the OpenClaw gateway WebSocket protocol
+// TypeScript types for the Gateway gateway WebSocket protocol
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected';
 
@@ -106,7 +106,7 @@ export type GatewayInbound =
 
 // --- Client callbacks ---
 
-export interface OpenClawCallbacks {
+export interface GatewayCallbacks {
   onConnected?: () => void;
   onDisconnected?: () => void;
   onAgent?: (payload: AgentEvent['payload']) => void;

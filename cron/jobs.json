@@ -79,7 +79,7 @@
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "Check if /Users/grantjwylie/.openclaw/workspace/research/DONE.md exists. If it does, read research/overnight-report.md and research/anthropic-job-hunt.md and send J a Telegram message. Format:\n\n🔬 Overnight Research Ready\n\n🎯 Anthropic Path — Top Actions\n[Top 3 most actionable concrete steps from anthropic-job-hunt.md]\n\n📊 Project Market Analysis\n[1-2 sentence summary per project from overnight-report.md]\n\n📁 Full reports in workspace/research/\n\nIf DONE.md does NOT exist, send: ⏳ Research still running — full report coming in morning brief."
+        "message": "Check if /Users/grantjwylie/.cozyterm/workspace/research/DONE.md exists. If it does, read research/overnight-report.md and research/anthropic-job-hunt.md and send J a Telegram message. Format:\n\n🔬 Overnight Research Ready\n\n🎯 Anthropic Path — Top Actions\n[Top 3 most actionable concrete steps from anthropic-job-hunt.md]\n\n📊 Project Market Analysis\n[1-2 sentence summary per project from overnight-report.md]\n\n📁 Full reports in workspace/research/\n\nIf DONE.md does NOT exist, send: ⏳ Research still running — full report coming in morning brief."
       },
       "delivery": {
         "mode": "announce",

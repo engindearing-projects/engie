@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { OpenClawClient } from '../src/services/OpenClawClient';
+import { GatewayClient } from '../src/services/GatewayClient';
 import { colors } from '../src/theme/colors';
 
 const VERSION = '0.3.0';
@@ -68,7 +68,7 @@ export default function SettingsScreen() {
     setTestStatus('testing');
     setTestMessage('Connecting...');
 
-    const client = new OpenClawClient(
+    const client = new GatewayClient(
       host.trim(),
       parseInt(port.trim() || '18789', 10),
       token.trim(),
@@ -120,7 +120,7 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Connection</Text>
       <Text style={styles.sectionHint}>
-        Enter the IP and auth token of your OpenClaw gateway.
+        Enter the IP and auth token of your CozyTerm gateway.
       </Text>
 
       <Text style={styles.label}>Host</Text>

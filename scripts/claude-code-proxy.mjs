@@ -79,7 +79,7 @@ const ENGIE_MAX_TURNS = 25;
 const ENGIE_TIMEOUT_MS = 300_000; // 5 min — coding tasks need room
 const ENGIE_MCP_CONFIG = resolve(PROJECT_DIR, "config", "mcp-tools.json");
 
-/** System preamble prepended to whatever OpenClaw sends */
+/** System preamble prepended to whatever CozyTerm sends */
 const ENGIE_SYSTEM_PREAMBLE = [
   "You are Engie, an AI project manager and coding assistant.",
   "You have read/write access to local memory files in ~/.cozyterm/memory/.",
@@ -521,7 +521,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    // Extract sessionKey from the request (OpenClaw embeds it in system messages or metadata)
+    // Extract sessionKey from the request (CozyTerm embeds it in system messages or metadata)
     const sessionKeyMatch = systemPrompt.match(/sessionKey:\s*(\S+)/);
     const sessionKey = sessionKeyMatch?.[1] || body._sessionKey || "default";
 

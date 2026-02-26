@@ -18,15 +18,14 @@ import { StepList } from "./components/StepList.js";
 import {
   engieHome,
   ensureDirs,
-  ensureOpenclawSymlink,
-  configPath as openclawConfigPath,
+  configPath,
   envFilePath,
   mcpToolsPath,
   initStatePath,
 } from "../lib/paths.js";
 import {
   runAllChecks,
-  checkGateway as checkOpenClaw,
+  checkGateway,
   checkOllama,
   checkClaude,
 } from "../lib/prereqs.js";
@@ -51,7 +50,7 @@ const e = React.createElement;
 const STEP_DEFS = [
   { id: "system_check", label: "System check" },
   { id: "global_command", label: "Global command" },
-  { id: "openclaw", label: "OpenClaw" },
+  { id: "gateway", label: "Gateway" },
   { id: "ollama", label: "Ollama" },
   { id: "claude", label: "Claude Code" },
   { id: "config", label: "Configuration" },
@@ -170,7 +169,7 @@ export function WizardApp() {
     telegramToken: "",
     claudeFound: false,
     ollamaFound: false,
-    openclawFound: false,
+    gatewayFound: false,
     profileName: "",
     profileRole: "",
     profileOrg: "",
@@ -235,8 +234,8 @@ export function WizardApp() {
       runSystemCheck();
     } else if (stepDef.id === "global_command" && phase === "init") {
       runGlobalCommand();
-    } else if (stepDef.id === "openclaw" && phase === "init") {
-      runOpenclawCheck();
+    } else if (stepDef.id === "gateway" && phase === "init") {
+      runGatewayCheck();
     } else if (stepDef.id === "ollama" && phase === "init") {
       runOllamaCheck();
     } else if (stepDef.id === "claude" && phase === "init") {
@@ -337,12 +336,12 @@ export function WizardApp() {
     }, 300);
   }
 
-  function runOpenclawCheck() {
+  function runGatewayCheck() {
     setTimeout(() => {
-      const result = checkOpenClaw();
-      dataRef.current.openclawFound = result.installed;
+      const result = checkGateway();
+      dataRef.current.gatewayFound = result.installed;
       if (result.installed) {
-        completeStep("openclaw", `v${result.version}`);
+        completeStep("gateway", `v${result.version}`);
         advanceToNext();
       } else {
         // Need user input
@@ -351,26 +350,26 @@ export function WizardApp() {
     }, 200);
   }
 
-  function handleOpenclawInstall(yes) {
+  function handleGatewayInstall(yes) {
     if (yes) {
-      updateStep("openclaw", { status: "active", detail: "installing..." });
+      updateStep("gateway", { status: "active", detail: "starting gateway..." });
       setTimeout(() => {
-        const result = tryExec("bun install -g openclaw", { timeout: 60000 });
+        const result = tryExec("launchctl kickstart gui/$(id -u)/com.engie.gateway", { timeout: 60000 });
         if (result !== null) {
-          const check = checkOpenClaw();
+          const check = checkGateway();
           if (check.installed) {
-            dataRef.current.openclawFound = true;
-            completeStep("openclaw", `installed v${check.version}`);
+            dataRef.current.gatewayFound = true;
+            completeStep("gateway", `running v${check.version}`);
           } else {
-            failStep("openclaw", "install succeeded but binary not found");
+            failStep("gateway", "started but health check failed");
           }
         } else {
-          failStep("openclaw", "install failed");
+          failStep("gateway", "start failed");
         }
         advanceToNext();
       }, 100);
     } else {
-      skipStep("openclaw", "manual install needed");
+      skipStep("gateway", "manual start needed");
       advanceToNext();
     }
   }
@@ -472,9 +471,9 @@ export function WizardApp() {
 
         const token = dataRef.current.gatewayToken;
 
-        // openclaw.json
+        // cozyterm.json
         const ocConfig = generateGatewayConfig({ token });
-        writeFileSync(openclawConfigPath(), JSON.stringify(ocConfig, null, 2) + "\n", "utf-8");
+        writeFileSync(configPath(), JSON.stringify(ocConfig, null, 2) + "\n", "utf-8");
 
         // .env
         const envContent = generateEnvFile({
@@ -502,8 +501,7 @@ export function WizardApp() {
     setTimeout(() => {
       try {
         ensureDirs();
-        ensureOpenclawSymlink();
-        completeStep("directories", "all directories created, symlink set");
+        completeStep("directories", "all directories created");
         advanceToNext();
       } catch (err) {
         failStep("directories", err.message);
@@ -724,12 +722,12 @@ export function WizardApp() {
   let prompt = null;
 
   if (currentStep) {
-    // OpenClaw install prompt
-    if (currentStep.id === "openclaw" && phase === "ask_install") {
+    // Gateway start prompt
+    if (currentStep.id === "gateway" && phase === "ask_install") {
       prompt = e(ConfirmPrompt, {
-        question: "Install OpenClaw via bun?",
+        question: "Start the gateway service?",
         defaultYes: true,
-        onResult: handleOpenclawInstall,
+        onResult: handleGatewayInstall,
       });
     }
 

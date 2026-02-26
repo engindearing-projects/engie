@@ -1,8 +1,8 @@
-// OpenClaw gateway WebSocket client — browser port of engie-mobile version.
+// Gateway gateway WebSocket client — browser port of engie-mobile version.
 // Uses native browser WebSocket and crypto.randomUUID().
 
 import type {
-  OpenClawCallbacks,
+  GatewayCallbacks,
   AgentEvent,
   ChatEvent,
   GatewayInbound,
@@ -20,7 +20,7 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export class OpenClawClient {
+export class GatewayClient {
   private host: string;
   private port: number;
   private token: string;
@@ -32,7 +32,7 @@ export class OpenClawClient {
   private _reconnectAttempt = 0;
 
   connected = false;
-  callbacks: OpenClawCallbacks = {};
+  callbacks: GatewayCallbacks = {};
 
   constructor(host: string, port: number, token: string) {
     this.host = host;
@@ -87,7 +87,7 @@ export class OpenClawClient {
               minProtocol: 3,
               maxProtocol: 3,
               client: {
-                id: 'openclaw-control-ui',
+                id: 'cozyterm-ui',
                 version: '1.0.0',
                 platform: 'web',
                 mode: 'ui',
