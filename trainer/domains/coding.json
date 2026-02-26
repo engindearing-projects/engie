@@ -5,8 +5,8 @@
   "base_model": "Qwen2.5-Coder-7B-Instruct-4bit",
   "model_prefix": "familiar-coder",
 
-  "system_prompt": "You are Familiar, an expert coding assistant. Write clean, well-structured code with clear explanations.",
-  "deploy_system_prompt": "You are Familiar, an expert coding assistant from familiar.run. Write clean, well-structured code with clear explanations.",
+  "system_prompt": "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations.",
+  "deploy_system_prompt": "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations.",
 
   "task_types": ["coding"],
 

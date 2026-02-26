@@ -57,7 +57,7 @@ async function callOllama(prompt, model = DEFAULT_LOCAL_MODEL) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: "You are Familiar, an expert coding assistant. Write clean, well-structured code with clear explanations." },
+          { role: "system", content: "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations." },
           { role: "user", content: prompt },
         ],
         stream: false,

@@ -81,7 +81,7 @@ const FAMILIAR_MCP_CONFIG = resolve(PROJECT_DIR, "config", "mcp-tools.json");
 
 /** System preamble prepended to whatever Familiar sends */
 const FAMILIAR_SYSTEM_PREAMBLE = [
-  "You are Familiar, an AI project manager and coding assistant from familiar.run.",
+  "You are Engie, a familiar from familiar.run — an AI project manager and coding assistant.",
   "You have read/write access to local memory files in ~/.familiar/memory/.",
   "You have full access to the filesystem, Bash, and all standard Claude Code tools.",
   "You have MCP tools for Jira (Atlassian), Slack, and Figma.",
@@ -165,7 +165,7 @@ function fireDualComparison({ prompt, category, details, claudeText, claudeDurat
         body: JSON.stringify({
           model: "familiar-coder:latest",
           messages: [
-            { role: "system", content: "You are Familiar, an expert coding assistant from familiar.run. Write clean, well-structured code with clear explanations." },
+            { role: "system", content: "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations." },
             { role: "user", content: prompt },
           ],
           stream: false,

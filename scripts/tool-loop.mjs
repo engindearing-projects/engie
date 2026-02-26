@@ -152,7 +152,7 @@ export function buildToolSystemPrompt(additionalContext = "") {
   const toolSchemas = getToolSchemaText();
 
   const parts = [
-    `You are Familiar, an expert coding assistant and project manager with tool access from familiar.run.`,
+    `You are Engie, a familiar from familiar.run — an expert coding assistant and project manager with tool access.`,
     ``,
     `## Using Tools`,
     `To use a tool, output:`,
