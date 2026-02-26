@@ -969,15 +969,108 @@ const ROLE_SYSTEMS = {
   coding: "You are Engie, Grant's AI coding assistant. Write clean, well-structured code with clear explanations. Keep replies concise.",
   reasoning: "You are Engie, Grant's AI assistant. Think step by step. When debugging, trace from symptom to root cause. When planning, identify dependencies and risks. Keep replies concise.",
   tools: "You are Engie, Grant's AI assistant. You're great at navigating codebases and running shell commands. Explain what you'd do and why. Keep replies concise.",
-  chat: "You are Engie, Grant's AI assistant. You are conversational, helpful, and direct. You help with engineering questions, project planning, coding, and general tasks. Keep replies concise. If unsure, say so.",
+  chat: "You are Engie, Grant's AI assistant built by Engindearing. You run on a MacBook and can access the local filesystem, run shell commands, read/write files, search code, and query APIs — but only when the user asks you to do something specific. You don't have direct access in this conversation mode; when a task requires file access, commands, or tools, tell the user what you'd do and suggest they phrase it as a specific request (e.g. 'list files in ~/projects'). Those get routed to your tool-capable mode automatically. Keep replies concise. If unsure, say so honestly rather than guessing.",
 };
+
+/**
+ * Send a message through the gateway WebSocket for full agent capabilities
+ * (tool loop, MCP bridge, smart routing, Forge training collection).
+ * Falls back to direct ollamaChat if gateway is unavailable.
+ */
+async function sendViaGateway(sessionKey, message) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${GW_PORT}`);
+    const timeout = setTimeout(() => {
+      try { ws.close(); } catch {}
+      reject(new Error("Gateway timeout (120s)"));
+    }, 120_000);
+
+    let resolved = false;
+    let reqId = 0;
+
+    ws.addEventListener("open", () => {});
+
+    ws.addEventListener("message", (event) => {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch { return; }
+
+      // Step 1: respond to connect challenge
+      if (msg.type === "event" && msg.event === "connect.challenge") {
+        reqId++;
+        ws.send(JSON.stringify({
+          type: "req",
+          id: reqId,
+          method: "connect",
+          params: {
+            client: { id: "openclaw-control-ui" },
+            auth: GW_TOKEN ? { token: GW_TOKEN } : undefined,
+          },
+        }));
+        return;
+      }
+
+      // Step 2: after connect succeeds, send chat message
+      if (msg.type === "res" && msg.id === 1 && msg.ok) {
+        reqId++;
+        ws.send(JSON.stringify({
+          type: "req",
+          id: reqId,
+          method: "chat.send",
+          params: { sessionKey, message },
+        }));
+        return;
+      }
+
+      // Step 3: wait for final response (filter by sessionKey)
+      if (msg.type === "event" && msg.event === "chat" && msg.payload?.sessionKey === sessionKey) {
+        if (msg.payload.state === "final") {
+          resolved = true;
+          clearTimeout(timeout);
+          try { ws.close(); } catch {}
+          resolve(msg.payload.message?.content || "");
+        } else if (msg.payload.state === "error") {
+          resolved = true;
+          clearTimeout(timeout);
+          try { ws.close(); } catch {}
+          reject(new Error(msg.payload.error || msg.payload.errorMessage || "Gateway error"));
+        }
+      }
+    });
+
+    ws.addEventListener("error", (err) => {
+      if (!resolved) {
+        clearTimeout(timeout);
+        reject(new Error(`Gateway WebSocket error: ${err.message || "connection refused"}`));
+      }
+    });
+
+    ws.addEventListener("close", () => {
+      if (!resolved) {
+        clearTimeout(timeout);
+        reject(new Error("Gateway connection closed before response"));
+      }
+    });
+  });
+}
 
 async function sendToEngie(chatId, message) {
   const sessionKey = sessionKeyForChat(chatId);
-  const history = historyGet(sessionKey, MAX_CHAT_HISTORY);
-
-  // Classify the message to pick the right system prompt
   const { type: role } = classifyPrompt(message);
+
+  // Try gateway first — gives full agent capabilities (tool loop, routing, Forge training)
+  try {
+    console.log(`[sendToEngie] role=${role} trying gateway at :${GW_PORT}...`);
+    const text = await sendViaGateway(sessionKey, message);
+    historyAppend(sessionKey, "user", message, MAX_CHAT_HISTORY);
+    historyAppend(sessionKey, "assistant", text, MAX_CHAT_HISTORY);
+    console.log(`[sendToEngie] gateway response length: ${text.length}`);
+    return { text, role, fallback: false };
+  } catch (gwErr) {
+    console.warn(`[sendToEngie] gateway failed: ${gwErr.message}, falling back to direct ollama`);
+  }
+
+  // Fallback: direct ollamaChat (no tools, no Forge collection, but still works)
+  const history = historyGet(sessionKey, MAX_CHAT_HISTORY);
   const systemPrompt = ROLE_SYSTEMS[role] || ROLE_SYSTEMS.chat;
   const temperature = role === "reasoning" ? 0.4 : role === "tools" ? 0.3 : 0.7;
 
@@ -988,12 +1081,12 @@ async function sendToEngie(chatId, message) {
   ];
 
   try {
-    console.log(`[sendToEngie] role=${role} calling ollama (history: ${history.length} msgs)...`);
+    console.log(`[sendToEngie] role=${role} calling ollama direct (history: ${history.length} msgs)...`);
     const text = await ollamaChat(CHAT_MODEL, messages, { temperature, maxTokens: 1500 });
     historyAppend(sessionKey, "user", message, MAX_CHAT_HISTORY);
     historyAppend(sessionKey, "assistant", text, MAX_CHAT_HISTORY);
-    console.log("[sendToEngie] response length:", text.length);
-    return { text, role, fallback: false };
+    console.log("[sendToEngie] direct response length:", text.length);
+    return { text, role, fallback: true };
   } catch (e) {
     console.error("[sendToEngie] error:", e.message);
     return { text: `Sorry, I ran into an error: ${e.message}`, fallback: true };

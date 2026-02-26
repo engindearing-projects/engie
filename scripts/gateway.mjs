@@ -287,7 +287,7 @@ async function handleChatSend(ws, reqId, params) {
 
     } else {
       // ── 2. Route locally via classifier ──
-      const routeResult = await router.routeAndCollect({
+      const routeResult = await router.route({
         prompt: message,
         hasCode: /```/.test(message),
       });
@@ -307,6 +307,7 @@ async function handleChatSend(ws, reqId, params) {
         : systemPrompt;
 
       // ── 5. Branch on role ──
+      const responseStart = Date.now();
       if (role === "coding" || role === "tools") {
         // Tool loop for engie-coder
         const loopResult = await runToolLoop({
@@ -332,6 +333,19 @@ async function handleChatSend(ws, reqId, params) {
         responseText = responseText || "(no response)";
         console.log(`[chat] ollama direct done: role=${role} model=${model}`);
       }
+
+      // Fire Forge collector with actual response and model
+      const responseDurationMs = Date.now() - responseStart;
+      getCollector().then((c) => {
+        if (c) c.collectPair({
+          prompt: message,
+          routedTo: "ollama",
+          complexityScore: routeResult.score,
+          primaryResponse: responseText,
+          primaryModel: model,
+          primaryDurationMs: responseDurationMs,
+        });
+      }).catch(() => {});
 
       broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
     }

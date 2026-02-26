@@ -95,20 +95,21 @@ export class Collector {
    * @param {number} [opts.complexityScore] - Router's complexity score
    * @param {string} [opts.primaryResponse] - The response from the chosen backend
    * @param {number} [opts.primaryDurationMs] - How long the chosen backend took
+   * @param {string} [opts.primaryModel] - Which model generated the primary response
    */
-  collectPair({ prompt, routedTo, complexityScore, primaryResponse, primaryDurationMs }) {
+  collectPair({ prompt, routedTo, complexityScore, primaryResponse, primaryDurationMs, primaryModel }) {
     if (!this.enabled) return;
     if (!prompt || !routedTo) return;
     if (this._inflight >= this._maxInflight) return; // skip if too many in flight
 
     // Fire and forget — never block
     this._inflight++;
-    this._doCollect({ prompt, routedTo, complexityScore, primaryResponse, primaryDurationMs })
+    this._doCollect({ prompt, routedTo, complexityScore, primaryResponse, primaryDurationMs, primaryModel })
       .catch((err) => console.error("[Forge Collector] error:", err.message))
       .finally(() => this._inflight--);
   }
 
-  async _doCollect({ prompt, routedTo, complexityScore, primaryResponse, primaryDurationMs }) {
+  async _doCollect({ prompt, routedTo, complexityScore, primaryResponse, primaryDurationMs, primaryModel }) {
     const promptHash = hashPrompt(prompt);
 
     // Shadow request to the OTHER backend
@@ -159,6 +160,7 @@ export class Collector {
       local_response: localResponse,
       local_duration_ms: localDurationMs,
       local_model: this.localModel,
+      primary_model: primaryModel || (routedTo === "claude" ? "claude" : this.localModel),
     };
 
     writePair(pair);
