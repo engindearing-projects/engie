@@ -248,8 +248,22 @@ export class Router {
     // Score complexity for training data collection (still useful for Forge)
     const score = this.scoreComplexity(opts);
 
-    // Check Ollama availability
+    // Check Ollama availability — fall back to Claude if Ollama is down (e.g. during training)
     const ollamaAvailable = await this.isOllamaAvailable();
+
+    if (!ollamaAvailable) {
+      const claudeAvailable = await this.isClaudeAvailable();
+      if (claudeAvailable) {
+        return {
+          backend: "claude",
+          reason: `Ollama unavailable (training?), falling back to Claude`,
+          score,
+          ollamaAvailable: false,
+          claudeAvailable: true,
+          ...roleInfo,
+        };
+      }
+    }
 
     return {
       backend: "ollama",

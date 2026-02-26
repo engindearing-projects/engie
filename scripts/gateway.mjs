@@ -293,12 +293,35 @@ async function handleChatSend(ws, reqId, params) {
         hasCode: /```/.test(message),
       });
 
-      const { role, model, systemPrompt, temperature, ollamaAvailable } = routeResult;
-      console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} model=${model} score=${routeResult.score?.toFixed(2)}`);
+      const { role, model, systemPrompt, temperature, ollamaAvailable, backend } = routeResult;
+      console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} model=${model} backend=${backend} score=${routeResult.score?.toFixed(2)}`);
 
-      // ── 3. Ollama must be up — no silent Claude fallback ──
-      if (!ollamaAvailable) {
-        throw new Error("Ollama is not running — cannot process request. Start Ollama or use 'ask claude <message>' for remote.");
+      // ── 3. If Ollama is down (e.g. during training), fall back to Claude ──
+      if (backend === "claude" || !ollamaAvailable) {
+        const online = await checkOnline();
+        if (!online) {
+          throw new Error("Both Ollama and Anthropic API unavailable — cannot process request.");
+        }
+        console.log(`[chat] Ollama unavailable, falling back to Claude`);
+        const isFollowUp = !!session.claudeSessionId && session.messages.length > 2;
+        const claudeOpts = {
+          prompt: message,
+          systemPrompt: isFollowUp ? undefined : FAMILIAR_SYSTEM_PREAMBLE,
+          outputFormat: "json",
+          maxTurns: FAMILIAR_MAX_TURNS,
+          addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
+          timeoutMs: FAMILIAR_TIMEOUT_MS,
+          mcpConfig: FAMILIAR_MCP_CONFIG,
+          resumeSession: isFollowUp ? session.claudeSessionId : undefined,
+        };
+        const result = await invokeClaude(claudeOpts, claudeLimiter);
+        if (result.session_id) session.claudeSessionId = result.session_id;
+        responseText = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
+        broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
+
+        session.messages.push({ role: "assistant", content: responseText, ts: Date.now() });
+        broadcast("chat", { runId, sessionKey, state: "final", message: { role: "assistant", content: responseText } });
+        return;
       }
 
       // ── 4. Inject memory context only for reasoning (coding/tools have their own system prompt, chat doesn't need it) ──
