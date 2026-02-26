@@ -201,6 +201,7 @@
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
+        "timeoutSeconds": 1800,
         "message": "Forge weekly report. Compile a comprehensive training status:\n\n1. Read forge DB stats: bun -e 'import { getForgeStats, getAllVersions, getAllRuns, getAllEvaluations } from \"/Users/grantjwylie/engie/trainer/forge-db.js\"; console.log(JSON.stringify({ stats: getForgeStats(), versions: getAllVersions(), runs: getAllRuns(), evals: getAllEvaluations() }));'\n2. Run a fresh benchmark: cd ~/engie/trainer && .venv/bin/python scripts/evaluate.py\n3. Send a Telegram report:\n\n📊 Forge Weekly Report\n\n🗂️ Data Collection\n- Total pairs: [N]\n- This week: [N new]\n- Categories: [breakdown]\n\n🏋️ Training History\n- Total runs: [N]\n- Latest: [version] ([date])\n- Best benchmark: [score]%\n\n📈 Improvement Trend\n[Version history with scores]\n\n🎯 Router Threshold\n- Current: [threshold]\n- Tasks routed to local: [%]\n\n💡 Recommendations\n[Suggest if more data needed, if threshold should adjust, etc.]\n\nKeep it under 500 words."
       },
       "delivery": {
@@ -220,7 +221,7 @@
     {
       "id": "c3d2497e-6d8a-4f24-bf48-0de0f35fdd3a",
       "name": "Deploy Thread Monitor — hos-portal-api dev redeploy",
-      "enabled": true,
+      "enabled": false,
       "createdAtMs": 1771617861697,
       "updatedAtMs": 1771979419229,
       "schedule": {

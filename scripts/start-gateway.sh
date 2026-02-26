@@ -1,13 +1,13 @@
 #!/bin/bash
-# Start CozyTerm gateway with env vars from config/.env
+# Start Familiar gateway with env vars from config/.env
 # All paths are resolved relative to $HOME — no hardcoded user paths.
 
-COZYTERM_HOME="${COZYTERM_HOME:-${ENGIE_HOME:-$HOME/.cozyterm}}"
-ENV_FILE="${COZYTERM_HOME}/config/.env"
+FAMILIAR_HOME="${FAMILIAR_HOME:-${COZYTERM_HOME:-${ENGIE_HOME:-$HOME/.familiar}}}"
+ENV_FILE="${FAMILIAR_HOME}/config/.env"
 
 # Fall back to legacy locations if config/.env doesn't exist
 if [ ! -f "$ENV_FILE" ]; then
-  ENV_FILE="$HOME/.engie/config/.env"
+  ENV_FILE="$HOME/.cozyterm/config/.env"
 fi
 if [ ! -f "$ENV_FILE" ]; then
   ENV_FILE="$HOME/engie/config/.env"

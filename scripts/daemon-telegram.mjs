@@ -10,8 +10,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
 
 const CONFIG_PATH = findConfig() || (
-  existsSync(resolve(PROJECT_DIR, "config", "cozyterm.json"))
-    ? resolve(PROJECT_DIR, "config", "cozyterm.json")
+  existsSync(resolve(PROJECT_DIR, "config", "familiar.json"))
+    ? resolve(PROJECT_DIR, "config", "familiar.json")
     : resolve(PROJECT_DIR, "config", "cozyterm.json")
 );
 

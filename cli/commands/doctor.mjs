@@ -121,7 +121,7 @@ export async function run({ args } = {}) {
       issues++;
     }
   } else {
-    fail("Config: no gateway config found (cozyterm.json)");
+    fail("Config: no gateway config found (familiar.json)");
     issues++;
   }
 

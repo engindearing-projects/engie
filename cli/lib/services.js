@@ -1,11 +1,11 @@
-// Service lifecycle management for CozyTerm launchd services.
+// Service lifecycle management for Familiar launchd services.
 // All paths resolved dynamically — no hardcoded user paths.
 
 import { execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { engieHome, logsDir } from "./paths.js";
+import { familiarHome, logsDir } from "./paths.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /** Code repo root (~/engie/) — distinct from data home (~/.cozyterm/) */
@@ -20,24 +20,23 @@ const DOMAIN_TARGET = `gui/${process.getuid()}`;
  * Paths are resolved dynamically at call time.
  */
 export function getServiceDefs() {
-  const root = engieHome();
   const logs = logsDir();
 
   return [
     {
-      label: "com.cozyterm.gateway",
+      label: "com.familiar.gateway",
       displayName: "Gateway",
       healthUrl: "http://localhost:18789/health",
-      plistPath: join(LAUNCH_AGENTS_DIR, "com.cozyterm.gateway.plist"),
+      plistPath: join(LAUNCH_AGENTS_DIR, "com.familiar.gateway.plist"),
       logPath: join(logs, "gateway.log"),
       errorLogPath: join(logs, "gateway.err.log"),
       managed: true,
     },
     {
-      label: "com.cozyterm.claude-proxy",
+      label: "com.familiar.claude-proxy",
       displayName: "Claude Proxy",
       healthUrl: "http://localhost:18791/health",
-      plistPath: join(LAUNCH_AGENTS_DIR, "com.cozyterm.claude-proxy.plist"),
+      plistPath: join(LAUNCH_AGENTS_DIR, "com.familiar.claude-proxy.plist"),
       logPath: join(logs, "claude-proxy.log"),
       errorLogPath: join(logs, "claude-proxy.error.log"),
       managed: true,
@@ -142,7 +141,7 @@ function generateGatewayPlist() {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.cozyterm.gateway</string>
+    <string>com.familiar.gateway</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
@@ -178,7 +177,7 @@ function generateClaudeProxyPlist() {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.cozyterm.claude-proxy</string>
+    <string>com.familiar.claude-proxy</string>
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/node</string>
@@ -214,13 +213,13 @@ function generateClaudeProxyPlist() {
  */
 export function installService(def) {
   if (!def.managed) {
-    throw new Error(`${def.displayName} is not managed by CozyTerm — install via homebrew`);
+    throw new Error(`${def.displayName} is not managed — install via homebrew`);
   }
 
   let plistContent;
-  if (def.label === "com.cozyterm.gateway") {
+  if (def.label === "com.familiar.gateway") {
     plistContent = generateGatewayPlist();
-  } else if (def.label === "com.cozyterm.claude-proxy") {
+  } else if (def.label === "com.familiar.claude-proxy") {
     plistContent = generateClaudeProxyPlist();
   } else {
     throw new Error(`No plist generator for ${def.label}`);

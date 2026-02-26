@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-// CozyTerm Gateway — Bun WebSocket server for agent dispatch.
+// Familiar Gateway — Bun WebSocket server for agent dispatch.
 // Speaks the same protocol as cli/src/gateway.mjs expects:
 //   connect.challenge → connect → chat.send / chat.history / sessions.list / health / config.get
 //
@@ -32,6 +32,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function loadConfig() {
   const candidates = [
+    resolve(PROJECT_DIR, "config", "familiar.json"),
     resolve(PROJECT_DIR, "config", "cozyterm.json"),
   ];
   for (const p of candidates) {
@@ -47,12 +48,14 @@ function loadConfig() {
 const { config, path: configPath } = loadConfig();
 const PORT = parseInt(process.env.GATEWAY_PORT || String(config.gateway?.port ?? 18789), 10);
 const AUTH_TOKEN = config.gateway?.auth?.token
+  || process.env.FAMILIAR_GATEWAY_TOKEN
   || process.env.COZYTERM_GATEWAY_TOKEN
 ;
 const BIND = config.gateway?.bind || "lan";
 
 // Accepted client IDs
 const ACCEPTED_CLIENT_IDS = new Set([
+  "familiar-ui",
   "cozyterm-ui",
 ]);
 

@@ -22,8 +22,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
 
 const CONFIG_PATH = findConfig() || (
-  existsSync(resolve(PROJECT_DIR, "config", "cozyterm.json"))
-    ? resolve(PROJECT_DIR, "config", "cozyterm.json")
+  existsSync(resolve(PROJECT_DIR, "config", "familiar.json"))
+    ? resolve(PROJECT_DIR, "config", "familiar.json")
     : resolve(PROJECT_DIR, "config", "cozyterm.json")
 );
 const ACTIVITY_URL = process.env.ACTIVITY_URL || "http://localhost:18790";
@@ -108,7 +108,7 @@ function chunkText(text, maxLen = MAX_TG_TEXT) {
 // ── Config + Telegram ─────────────────────────────────────────────────────
 
 let BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.TG_BRIDGE_TOKEN;
-let GW_TOKEN = process.env.COZYTERM_GATEWAY_TOKEN || process.env.COZYTERM_GATEWAY_TOKEN;
+let GW_TOKEN = process.env.FAMILIAR_GATEWAY_TOKEN || process.env.COZYTERM_GATEWAY_TOKEN;
 let GW_PORT = 18789;
 let TG_ALLOWLIST = (process.env.TG_BRIDGE_ALLOWLIST || "").split(",").map((s) => s.trim()).filter(Boolean);
 let TELEGRAM_PLUGIN_ENABLED = null;

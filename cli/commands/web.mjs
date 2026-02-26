@@ -15,7 +15,7 @@ const DEFAULT_WEB_PORT = "5173";
 function readToken() {
   try {
     const env = readFileSync(ENV_PATH, "utf-8");
-    const match = env.match(/^COZYTERM_GATEWAY_TOKEN=(.+)$/m);
+    const match = env.match(/^(?:FAMILIAR|COZYTERM)_GATEWAY_TOKEN=(.+)$/m);
     return match ? match[1].trim() : null;
   } catch {
     return null;
