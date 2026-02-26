@@ -93,7 +93,7 @@ const claudeLimiter = new Semaphore(parseInt(process.env.CLAUDE_MAX_CONCURRENT |
 const router = new Router({
   proxyUrl: `http://127.0.0.1:${process.env.CLAUDE_PROXY_PORT || 18791}`,
   ollamaUrl: "http://localhost:11434",
-  localModel: "engie-coder:latest",
+  localModel: "familiar-coder:latest",
 });
 
 // ── Forge Collectors (lazy-loaded) ──────────────────────────────────────────
@@ -578,16 +578,17 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 // ── Startup Banner ──────────────────────────────────────────────────────────
 
 const bin = claudeBin();
-console.log(`CozyTerm Gateway v0.6.0 (Engie AI — Multi-Model)`);
+console.log(`Familiar Gateway v0.7.0 (Multi-Model Forge Training)`);
 console.log(`  listening:    ${hostname}:${PORT}`);
 console.log(`  config:       ${configPath || "none"}`);
 console.log(`  sessions TTL: ${SESSION_TTL_MS / 60000} min`);
 console.log("");
-console.log("Model routing:");
-console.log("  coding/tools → engie-coder:latest (tool loop)");
-console.log("  reasoning    → glm-4.7-flash:latest (direct)");
-console.log("  chat         → qwen2.5:7b-instruct (direct)");
-console.log(`  claude       → explicit trigger only (${bin ? "available" : "NOT FOUND"})`);
+console.log("Model routing (familiar-* with stock fallbacks):");
+console.log("  coding → familiar-coder:latest / engie-coder:latest");
+console.log("  tools  → familiar-tools:latest / engie-coder:latest");
+console.log("  reason → familiar-reason:latest / glm-4.7-flash:latest");
+console.log("  chat   → familiar-chat:latest / qwen2.5:7b-instruct");
+console.log(`  claude → explicit trigger only (${bin ? "available" : "NOT FOUND"})`);
 console.log("");
 console.log("Claude trigger phrases: ask claude, @claude, use claude, hey claude");
 console.log("");

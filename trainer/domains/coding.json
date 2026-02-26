@@ -3,7 +3,7 @@
   "name": "Software Engineering",
   "description": "Code generation, debugging, refactoring, and software architecture",
   "base_model": "Qwen2.5-Coder-7B-Instruct-4bit",
-  "model_prefix": "engie-coder",
+  "model_prefix": "familiar-coder",
 
   "system_prompt": "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations.",
   "deploy_system_prompt": "You are Engie, an expert coding assistant built by Engindearing. Write clean, well-structured code with clear explanations.",

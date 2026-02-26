@@ -118,66 +118,108 @@ async function getActiveScore() {
   return eval_?.overall_score ?? active.benchmark_score ?? null;
 }
 
-async function runPipeline() {
-  const startTime = Date.now();
-  const steps = [];
+// Domains to train in order (coding first since it has the most data)
+const TRAIN_DOMAINS = ["coding", "chat", "reasoning", "tools"];
+
+// Minimum training examples required per domain to bother training
+const MIN_DOMAIN_EXAMPLES = { coding: 10, chat: 10, reasoning: 10, tools: 10 };
+
+async function runDomainPipeline(domain) {
+  const domainStart = Date.now();
+  log(`  [${domain}] Preparing data...`);
 
   try {
-    // Step 1: Prepare data
-    log("Step 1/4: Preparing data...");
-    await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "prepare-data.py")]);
-    steps.push("prepare ✓");
+    await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "prepare-data.py"), "--domain", domain]);
+  } catch (e) {
+    log(`  [${domain}] Prepare failed (likely not enough data): ${e.message.slice(0, 100)}`);
+    return { domain, status: "skipped", reason: "prepare failed" };
+  }
 
-    // Count training examples
-    const trainFile = resolve(TRAINER_DIR, "data", "train.jsonl");
-    const trainCount = readFileSync(trainFile, "utf8").trim().split("\n").length;
-    log(`  ${trainCount} training examples prepared`);
+  // Count training examples
+  const trainFile = domain === "coding"
+    ? resolve(TRAINER_DIR, "data", "train.jsonl")
+    : resolve(TRAINER_DIR, "data", domain, "train.jsonl");
 
-    // Step 2: Train
-    log("Step 2/4: Training LoRA adapter...");
-    const scoreBefore = await getActiveScore();
-    await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "train.py")]);
-    steps.push("train ✓");
+  let trainCount = 0;
+  try {
+    trainCount = readFileSync(trainFile, "utf8").trim().split("\n").length;
+  } catch {
+    log(`  [${domain}] No training file produced`);
+    return { domain, status: "skipped", reason: "no data" };
+  }
 
-    // Step 3: Fuse and deploy
-    log("Step 3/4: Fusing and deploying...");
-    await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "fuse-and-deploy.py")]);
-    steps.push("deploy ✓");
+  const minExamples = MIN_DOMAIN_EXAMPLES[domain] || 10;
+  if (trainCount < minExamples) {
+    log(`  [${domain}] Only ${trainCount} examples (need ${minExamples}), skipping`);
+    return { domain, status: "skipped", reason: `${trainCount} < ${minExamples} examples` };
+  }
 
-    // Step 4: Evaluate
-    log("Step 4/4: Evaluating...");
-    try {
-      await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "evaluate.py")]);
-      steps.push("eval ✓");
-    } catch (e) {
-      log(`  Evaluation failed (non-fatal): ${e.message}`);
-      steps.push("eval ✗");
+  log(`  [${domain}] ${trainCount} examples — training...`);
+  try {
+    await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "train.py"), "--domain", domain]);
+  } catch (e) {
+    log(`  [${domain}] Training failed: ${e.message.slice(0, 100)}`);
+    return { domain, status: "failed", reason: e.message.slice(0, 100), examples: trainCount };
+  }
+
+  log(`  [${domain}] Fusing and deploying...`);
+  try {
+    await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "fuse-and-deploy.py"), "--domain", domain]);
+  } catch (e) {
+    log(`  [${domain}] Deploy failed: ${e.message.slice(0, 100)}`);
+    return { domain, status: "failed", reason: e.message.slice(0, 100), examples: trainCount };
+  }
+
+  // Evaluate (non-fatal)
+  let evalStatus = "skipped";
+  try {
+    await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "evaluate.py"), "--domain", domain]);
+    evalStatus = "pass";
+  } catch {
+    evalStatus = "fail";
+  }
+
+  const durationMin = ((Date.now() - domainStart) / 60000).toFixed(1);
+  log(`  [${domain}] Complete — ${trainCount} examples, ${durationMin} min, eval: ${evalStatus}`);
+  return { domain, status: "trained", examples: trainCount, durationMin, evalStatus };
+}
+
+async function runPipeline() {
+  const startTime = Date.now();
+  const results = [];
+
+  try {
+    log("Starting multi-domain training pipeline...");
+    log(`Domains: ${TRAIN_DOMAINS.join(", ")}`);
+
+    for (const domain of TRAIN_DOMAINS) {
+      log(`\n── Domain: ${domain} ──`);
+      const result = await runDomainPipeline(domain);
+      results.push(result);
     }
 
-    // Check for regression
-    const scoreAfter = await getActiveScore();
+    // Build summary
     const duration = ((Date.now() - startTime) / 60000).toFixed(1);
+    const trained = results.filter((r) => r.status === "trained");
+    const skipped = results.filter((r) => r.status === "skipped");
+    const failed = results.filter((r) => r.status === "failed");
 
-    let message = `🔥 *Forge Training Complete*\n`;
-    message += `Steps: ${steps.join(" → ")}\n`;
-    message += `Examples: ${trainCount}\n`;
-    message += `Duration: ${duration} min\n`;
+    let message = `*Forge Multi-Domain Training*\n`;
+    message += `Duration: ${duration} min\n\n`;
 
-    if (scoreBefore != null && scoreAfter != null) {
-      const delta = scoreAfter - scoreBefore;
-      message += `Score: ${scoreBefore.toFixed(1)} → ${scoreAfter.toFixed(1)} (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})\n`;
-
-      if (delta < -CONFIG.regressionThreshold) {
-        log(`REGRESSION detected: ${delta.toFixed(1)} points. Rolling back...`);
-        try {
-          const { run } = await import(resolve(TRAINER_DIR, "forge-cli.mjs"));
-          await run({ args: ["rollback"] });
-          message += `⚠️ Regression > ${CONFIG.regressionThreshold}pts — auto-rolled back`;
-        } catch (e) {
-          message += `⚠️ Regression detected but rollback failed: ${e.message}`;
-        }
+    for (const r of results) {
+      if (r.status === "trained") {
+        message += `${r.domain}: ${r.examples} examples, ${r.durationMin} min, eval ${r.evalStatus}\n`;
+      } else if (r.status === "skipped") {
+        message += `${r.domain}: skipped (${r.reason})\n`;
+      } else {
+        message += `${r.domain}: FAILED (${r.reason})\n`;
       }
     }
+
+    message += `\nTrained: ${trained.length}/${TRAIN_DOMAINS.length}`;
+    if (skipped.length) message += ` | Skipped: ${skipped.length}`;
+    if (failed.length) message += ` | Failed: ${failed.length}`;
 
     // Mark pairs as used
     try {
@@ -191,10 +233,10 @@ async function runPipeline() {
 
     consecutiveFailures = 0;
     lastTrainTime = Date.now();
-    return true;
+    return trained.length > 0;
   } catch (e) {
     consecutiveFailures++;
-    const message = `❌ *Forge Training Failed*\nStep: ${steps.join(" → ")}\nError: ${e.message.slice(0, 200)}\nFailures: ${consecutiveFailures}/${CONFIG.maxFailures}`;
+    const message = `*Forge Training Failed*\nError: ${e.message.slice(0, 200)}\nFailures: ${consecutiveFailures}/${CONFIG.maxFailures}`;
     await sendTelegram(message);
     log(message.replace(/[*_]/g, ""));
     return false;

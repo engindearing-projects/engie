@@ -33,8 +33,18 @@ const ROLE_PROMPTS = {
   },
 };
 
-// Role-to-model mapping — each role gets its own local model
+// Role-to-model mapping — each role gets its own Forge-trained model
+// familiar-* models are deployed by the Forge after LoRA fine-tuning.
+// Fallbacks are the stock Ollama models used before Forge trains each domain.
 const ROLE_MODELS = {
+  coding:    "familiar-coder:latest",
+  tools:     "familiar-tools:latest",
+  reasoning: "familiar-reason:latest",
+  chat:      "familiar-chat:latest",
+};
+
+// Stock fallbacks — used when a familiar-* model hasn't been trained yet
+const ROLE_FALLBACKS = {
   coding:    "engie-coder:latest",
   tools:     "engie-coder:latest",
   reasoning: "glm-4.7-flash:latest",
@@ -75,6 +85,34 @@ export class Router {
     this.ollamaCache = null;
     this._collector = null;
     this._dynamicThreshold = null; // loaded from forge DB
+    this._availableModels = null; // cached set of model names in Ollama
+    this._availableModelsAt = 0;
+  }
+
+  /** Check which models are available in Ollama (cached 60s) */
+  async getAvailableModels() {
+    if (this._availableModels && Date.now() - this._availableModelsAt < 60_000) {
+      return this._availableModels;
+    }
+    try {
+      const resp = await fetch(`${this.ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
+      const data = await resp.json();
+      const models = new Set((data.models || []).map((m) => m.name));
+      this._availableModels = models;
+      this._availableModelsAt = Date.now();
+      return models;
+    } catch {
+      return this._availableModels || new Set();
+    }
+  }
+
+  /** Resolve model for a role — use familiar-* if available, else fallback to stock */
+  async resolveModel(role) {
+    const primary = ROLE_MODELS[role] || ROLE_MODELS.chat;
+    const fallback = ROLE_FALLBACKS[role] || ROLE_FALLBACKS.chat;
+    const available = await this.getAvailableModels();
+    if (available.has(primary)) return primary;
+    return fallback;
   }
 
   /** Check if Claude Code proxy is reachable and online */
@@ -126,7 +164,7 @@ export class Router {
     const roleConfig = ROLE_PROMPTS[type] || ROLE_PROMPTS.chat;
     return {
       role: type,
-      model: ROLE_MODELS[type] || ROLE_MODELS.chat,
+      model: ROLE_MODELS[type] || ROLE_MODELS.chat, // sync fallback; route() resolves async
       systemPrompt: roleConfig.system,
       temperature: roleConfig.temperature,
       confidence,
@@ -203,6 +241,10 @@ export class Router {
     // Classify the role — determines model, system prompt, and temperature
     const roleInfo = this.classifyRole(prompt);
 
+    // Resolve to the actual available model (familiar-* or stock fallback)
+    const resolvedModel = await this.resolveModel(roleInfo.role);
+    roleInfo.model = resolvedModel;
+
     // Score complexity for training data collection (still useful for Forge)
     const score = this.scoreComplexity(opts);
 
@@ -211,7 +253,7 @@ export class Router {
 
     return {
       backend: "ollama",
-      reason: `${roleInfo.role} → ${roleInfo.model}`,
+      reason: `${roleInfo.role} → ${resolvedModel}`,
       score,
       ollamaAvailable,
       ...roleInfo,
@@ -288,5 +330,5 @@ export class Router {
   }
 }
 
-export { ROLE_PROMPTS, ROLE_MODELS };
+export { ROLE_PROMPTS, ROLE_MODELS, ROLE_FALLBACKS };
 export default Router;
