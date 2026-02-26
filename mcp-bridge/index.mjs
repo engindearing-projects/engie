@@ -16,8 +16,8 @@ const PROJECT_DIR = resolve(__dirname, "..");
 const CONFIG_PATH = existsSync(resolve(PROJECT_DIR, "config/familiar.json"))
   ? resolve(PROJECT_DIR, "config/familiar.json")
   : resolve(PROJECT_DIR, "config/cozyterm.json");
-const DEFAULT_AGENT = "engie";
-const DEFAULT_SESSION_KEY = "agent:engie:main";
+const DEFAULT_AGENT = "familiar";
+const DEFAULT_SESSION_KEY = "agent:familiar:main";
 const CLAUDE_PROXY_URL = process.env.CLAUDE_PROXY_URL || "http://127.0.0.1:18791";
 const ACTIVITY_URL = process.env.ACTIVITY_URL || "http://localhost:18790";
 
@@ -236,17 +236,17 @@ function extractText(msg) {
 
 // ── MCP Server ──────────────────────────────────────────────────────────────
 const server = new McpServer({
-  name: "engie",
+  name: "familiar",
   version: "1.0.0",
 });
 
-// Tool: engie_chat
+// Tool: familiar_chat
 server.tool(
-  "engie_chat",
-  "Send a message to Engie and get a response. Use this to communicate with the Engie AI assistant.",
+  "familiar_chat",
+  "Send a message to Familiar and get a response. Use this to communicate with the Familiar AI assistant.",
   {
-    message: z.string().describe("The message to send to Engie"),
-    agent: z.string().optional().describe("Agent ID (default: engie)"),
+    message: z.string().describe("The message to send to Familiar"),
+    agent: z.string().optional().describe("Agent ID (default: familiar)"),
     session: z.string().optional().describe("Session name (optional, uses 'main')"),
   },
   async ({ message, agent, session }) => {
@@ -276,7 +276,7 @@ server.tool(
       if (finalEvent.payload?.state === "error") {
         const errMsg = finalEvent.payload?.error || finalEvent.payload?.message || "Unknown error";
         return {
-          content: [{ type: "text", text: `Engie error: ${typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg)}` }],
+          content: [{ type: "text", text: `Familiar error: ${typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg)}` }],
           isError: true,
         };
       }
@@ -302,7 +302,7 @@ server.tool(
       if (responseText) logActivity("telegram", "assistant", responseText, sk);
 
       return {
-        content: [{ type: "text", text: responseText || "Engie responded but no text was captured." }],
+        content: [{ type: "text", text: responseText || "Familiar responded but no text was captured." }],
       };
     } catch (e) {
       return {
@@ -313,10 +313,10 @@ server.tool(
   }
 );
 
-// Tool: engie_status
+// Tool: familiar_status
 server.tool(
-  "engie_status",
-  "Check Engie system health and status",
+  "familiar_status",
+  "Check Familiar system health and status",
   {},
   async () => {
     try {
@@ -334,12 +334,12 @@ server.tool(
   }
 );
 
-// Tool: engie_history
+// Tool: familiar_history
 server.tool(
-  "engie_history",
-  "Get recent conversation history from Engie",
+  "familiar_history",
+  "Get recent conversation history from Familiar",
   {
-    agent: z.string().optional().describe("Agent ID (default: engie)"),
+    agent: z.string().optional().describe("Agent ID (default: familiar)"),
     session: z.string().optional().describe("Session name (optional)"),
     limit: z.number().optional().describe("Number of messages to retrieve (default: 20)"),
   },
@@ -361,13 +361,13 @@ server.tool(
   }
 );
 
-// Tool: engie_sessions
+// Tool: familiar_sessions
 server.tool(
-  "engie_sessions",
-  "List or manage Engie sessions",
+  "familiar_sessions",
+  "List or manage Familiar sessions",
   {
     action: z.enum(["list", "reset"]).optional().describe("Action: list or reset (default: list)"),
-    agent: z.string().optional().describe("Agent ID (default: engie)"),
+    agent: z.string().optional().describe("Agent ID (default: familiar)"),
     session: z.string().optional().describe("Session name (for reset)"),
   },
   async ({ action, agent, session }) => {
@@ -388,10 +388,10 @@ server.tool(
   }
 );
 
-// Tool: engie_config
+// Tool: familiar_config
 server.tool(
-  "engie_config",
-  "Read Engie configuration",
+  "familiar_config",
+  "Read Familiar configuration",
   {
     section: z.string().optional().describe("Config section to read (e.g., 'agents', 'channels', 'skills'). Omit for full config."),
   },
@@ -411,9 +411,9 @@ server.tool(
   }
 );
 
-// Tool: engie_raw
+// Tool: familiar_raw
 server.tool(
-  "engie_raw",
+  "familiar_raw",
   "Call any gateway method directly. Use this for advanced operations not covered by other tools.",
   {
     method: z.string().describe("The gateway method to call (e.g., 'agents.list', 'skills.status', 'cron.list')"),
@@ -460,9 +460,9 @@ async function claudeProxyInvoke(body) {
 
 // ── Claude Code tools ────────────────────────────────────────────────────────
 
-// Tool: engie_claude — invoke Claude Code CLI for heavy tasks
+// Tool: familiar_claude — invoke Claude Code CLI for heavy tasks
 server.tool(
-  "engie_claude",
+  "familiar_claude",
   "Run a task through Claude Code CLI (the heavy brain). Use this for code generation, refactoring, multi-file edits, debugging, and complex reasoning tasks. Requires the Claude Code proxy to be running.",
   {
     prompt: z.string().describe("The task prompt for Claude Code"),
@@ -473,7 +473,7 @@ server.tool(
     workingDir: z
       .string()
       .optional()
-      .describe("Working directory for the task (default: engie workspace)"),
+      .describe("Working directory for the task (default: familiar workspace)"),
     systemPrompt: z
       .string()
       .optional()
@@ -540,9 +540,9 @@ server.tool(
   }
 );
 
-// Tool: engie_route — ask the router which backend to use for a task
+// Tool: familiar_route — ask the router which backend to use for a task
 server.tool(
-  "engie_route",
+  "familiar_route",
   "Check which backend (Claude Code or Ollama) should handle a given task based on complexity and availability. Useful for deciding before sending a message.",
   {
     prompt: z.string().describe("The task/message to evaluate"),
@@ -589,7 +589,7 @@ server.tool(
             recommended: backend,
             complexityScore: parseFloat(score.toFixed(2)),
             claudeAvailable,
-            ollamaAvailable: true, // assume if Engie is running
+            ollamaAvailable: true, // assume if Familiar is running
             reason: backend === "claude"
               ? `Score ${score.toFixed(2)} >= 0.6, Claude available`
               : claudeAvailable
@@ -607,14 +607,13 @@ server.tool(
   }
 );
 
-// ── Update engie_status to include Claude Code proxy info ───────────────────
-// (Override: remove old engie_status, re-register with Claude Code info)
+// ── Full system status including Claude Code proxy ──────────────────────────
 // Note: McpServer doesn't support removing tools, so we registered the
-// original above. The new Claude Code status is in engie_system_status.
+// original above. The new Claude Code status is in familiar_system_status.
 
 server.tool(
-  "engie_system_status",
-  "Full system health: Engie gateway + Claude Code proxy + Ollama + online status",
+  "familiar_system_status",
+  "Full system health: Familiar gateway + Claude Code proxy + Ollama + online status",
   {},
   async () => {
     try {
@@ -644,14 +643,14 @@ server.tool(
   }
 );
 
-// Tool: engie_observe — write a structured observation to memory
+// Tool: familiar_observe — write a structured observation to memory
 server.tool(
-  "engie_observe",
-  "Store a structured observation in Engie's memory. Use this to record decisions, blockers, task updates, insights, and preferences discovered during work.",
+  "familiar_observe",
+  "Store a structured observation in Familiar's memory. Use this to record decisions, blockers, task updates, insights, and preferences discovered during work.",
   {
     type: z.enum(["task_update", "code_change", "decision", "blocker", "preference", "insight", "chat_exchange"]).describe("Observation type"),
     summary: z.string().describe("Concise summary of the observation"),
-    project: z.string().optional().describe("Project name (e.g., 'myapp', 'engie')"),
+    project: z.string().optional().describe("Project name (e.g., 'myapp', 'familiar')"),
     details: z.string().optional().describe("Additional details or context"),
     tags: z.array(z.string()).optional().describe("Tags for categorization (e.g., ticket IDs like 'PROJ-42')"),
   },
@@ -687,10 +686,10 @@ server.tool(
 
 // ── Memory read tools ──────────────────────────────────────────────────────
 
-// Tool: engie_memory_search — full-text search across observations
+// Tool: familiar_memory_search — full-text search across observations
 server.tool(
-  "engie_memory_search",
-  "Search Engie's memory for past observations, decisions, blockers, and insights. Uses full-text search with optional filters.",
+  "familiar_memory_search",
+  "Search Familiar's memory for past observations, decisions, blockers, and insights. Uses full-text search with optional filters.",
   {
     query: z.string().describe("Search query (FTS5 syntax supported, e.g. 'PROJ-42 blocker')"),
     type: z.enum(["task_update", "code_change", "decision", "blocker", "preference", "insight", "chat_exchange"]).optional().describe("Filter by observation type"),
@@ -719,10 +718,10 @@ server.tool(
   }
 );
 
-// Tool: engie_memory_recent — get recent observations
+// Tool: familiar_memory_recent — get recent observations
 server.tool(
-  "engie_memory_recent",
-  "Get the most recent observations from Engie's memory, across all projects.",
+  "familiar_memory_recent",
+  "Get the most recent observations from Familiar's memory, across all projects.",
   {
     limit: z.number().optional().describe("Number of observations to return (default 10)"),
   },
@@ -743,10 +742,10 @@ server.tool(
   }
 );
 
-// Tool: engie_memory_stats — memory DB statistics
+// Tool: familiar_memory_stats — memory DB statistics
 server.tool(
-  "engie_memory_stats",
-  "Get statistics about Engie's memory: observation counts by type and project, database size.",
+  "familiar_memory_stats",
+  "Get statistics about Familiar's memory: observation counts by type and project, database size.",
   {},
   async () => {
     try {
@@ -765,9 +764,9 @@ server.tool(
   }
 );
 
-// Tool: engie_memory_profile — read user profile and preferences
+// Tool: familiar_memory_profile — read user profile and preferences
 server.tool(
-  "engie_memory_profile",
+  "familiar_memory_profile",
   "Read the user's profile and preferences. Use this to understand who you're talking to and how they prefer to work.",
   {},
   async () => {

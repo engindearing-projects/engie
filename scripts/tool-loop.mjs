@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-// Engie-Coder Agentic Tool Loop
+// Familiar-Coder Agentic Tool Loop
 // Parses <tool_call> blocks from model output, executes tools, feeds results
 // back, and repeats until the model gives a final answer or hits limits.
 //
@@ -152,7 +152,7 @@ export function buildToolSystemPrompt(additionalContext = "") {
   const toolSchemas = getToolSchemaText();
 
   const parts = [
-    `You are Engie, an expert coding assistant and project manager with tool access.`,
+    `You are Familiar, an expert coding assistant and project manager with tool access from familiar.run.`,
     ``,
     `## Using Tools`,
     `To use a tool, output:`,

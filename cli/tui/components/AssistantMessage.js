@@ -8,7 +8,7 @@ const e = React.createElement;
 export function AssistantMessage({ text }) {
   const rendered = renderMarkdown(text);
   return e(Box, { flexDirection: "column", marginLeft: 2, marginBottom: 1 },
-    e(Text, { color: colors.cyanDim, bold: true }, "engie"),
+    e(Text, { color: colors.cyanDim, bold: true }, "familiar"),
     e(Text, null, rendered)
   );
 }

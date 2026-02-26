@@ -16,7 +16,7 @@ export function WelcomeScreen({ resuming }) {
     resuming
       ? e(Text, { color: colors.yellow }, "  Resuming setup...")
       : e(Box, { flexDirection: "column" },
-          e(Text, { color: colors.white, bold: true }, "  Hey! I'm Engie, your AI project manager inside CozyTerm."),
+          e(Text, { color: colors.white, bold: true }, "  Hey! I'm Familiar — get your familiar, right in the terminal."),
           e(Text, { color: colors.gray },
             "  Let's get me set up. This takes about 2 minutes."),
           e(Text, null, ""),

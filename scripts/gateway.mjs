@@ -67,12 +67,12 @@ const ENGIE_DISALLOWED_TOOLS = [
   "mcp__engie__engie_chat",
   "mcp__engie__engie_claude",
 ];
-const ENGIE_MAX_TURNS = 25;
-const ENGIE_TIMEOUT_MS = 300_000;
-const ENGIE_MCP_CONFIG = resolve(PROJECT_DIR, "config", "mcp-tools.json");
-const ENGIE_SYSTEM_PREAMBLE = [
-  "You are Engie, an AI project manager and coding assistant.",
-  "You have read/write access to local memory files in ~/.cozyterm/memory/.",
+const FAMILIAR_MAX_TURNS = 25;
+const FAMILIAR_TIMEOUT_MS = 300_000;
+const FAMILIAR_MCP_CONFIG = resolve(PROJECT_DIR, "config", "mcp-tools.json");
+const FAMILIAR_SYSTEM_PREAMBLE = [
+  "You are Familiar, an AI project manager and coding assistant from familiar.run.",
+  "You have read/write access to local memory files in ~/.familiar/memory/.",
   "You have full access to the filesystem, Bash, and all standard Claude Code tools.",
   "You have MCP tools for Jira (Atlassian), Slack, and Figma.",
   "",
@@ -261,13 +261,13 @@ async function handleChatSend(ws, reqId, params) {
 
       const claudeOpts = {
         prompt: cleanedPrompt,
-        systemPrompt: isFollowUp ? undefined : ENGIE_SYSTEM_PREAMBLE,
+        systemPrompt: isFollowUp ? undefined : FAMILIAR_SYSTEM_PREAMBLE,
         outputFormat: "json",
         disallowedTools: ENGIE_DISALLOWED_TOOLS,
-        maxTurns: ENGIE_MAX_TURNS,
+        maxTurns: FAMILIAR_MAX_TURNS,
         addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
-        timeoutMs: ENGIE_TIMEOUT_MS,
-        mcpConfig: ENGIE_MCP_CONFIG,
+        timeoutMs: FAMILIAR_TIMEOUT_MS,
+        mcpConfig: FAMILIAR_MCP_CONFIG,
         resumeSession: isFollowUp ? session.claudeSessionId : undefined,
       };
 

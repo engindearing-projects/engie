@@ -7,7 +7,7 @@ import { homedir } from "os";
 
 const PORT = parseInt(process.env.ACTIVITY_PORT || "18790", 10);
 const BIND = process.env.ACTIVITY_BIND || "0.0.0.0";
-const DB_PATH = resolve(process.env.ENGIE_DB_PATH || `${homedir()}/.engie/memory/engie.db`);
+const DB_PATH = resolve(process.env.FAMILIAR_DB_PATH || process.env.ENGIE_DB_PATH || `${homedir()}/.familiar/memory/familiar.db`);
 const MAX_CONTENT_LEN = 2000;
 const CLEANUP_DAYS = 30;
 

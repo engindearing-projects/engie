@@ -154,7 +154,7 @@ function checkTrainingData() {
     const stats = forgeDb.getForgeStats();
 
     // Check if raw data collection has gone stale
-    const rawDir = join(process.env.HOME || "/tmp", "engie/trainer/data/raw");
+    const rawDir = join(process.env.HOME || "/tmp", "familiar/trainer/data/raw");
     if (existsSync(rawDir)) {
       const files = readdirSync(rawDir)
         .filter((f) => f.endsWith(".jsonl"))
@@ -180,7 +180,7 @@ function checkTrainingData() {
     if (stats.unusedPairs < 20 && stats.totalPairs > 0) {
       return {
         trigger: "training_data",
-        prompt: `Only ${stats.unusedPairs} unused training pairs remaining (${stats.totalPairs} total). Mine new training data: run \`bun ~/engie/trainer/forge-cli.mjs mine-gt\` for ground-truth PR examples, or \`bun ~/engie/trainer/forge-cli.mjs mine-top\` for top GitHub repos. Also check if the auto-collector is active and capturing new session pairs.`,
+        prompt: `Only ${stats.unusedPairs} unused training pairs remaining (${stats.totalPairs} total). Mine new training data: run \`bun ~/familiar/trainer/forge-cli.mjs mine-gt\` for ground-truth PR examples, or \`bun ~/familiar/trainer/forge-cli.mjs mine-top\` for top GitHub repos. Also check if the auto-collector is active and capturing new session pairs.`,
         priority: 40,
       };
     }
@@ -209,7 +209,7 @@ function checkModelTraining() {
         const activeVersion = stats.activeVersion;
         return {
           trigger: "model_training",
-          prompt: `${stats.unusedPairs} unused training pairs available and last training run was ${Math.round(hoursSinceLastRun)}h ago (${lastRun.version}, loss: ${lastRun.valid_loss?.toFixed(3) || "?"}). Current active model: ${activeVersion?.version || "unknown"}. Consider running a new training cycle: prepare data, fine-tune, evaluate, and deploy. Run \`bun ~/engie/trainer/forge-cli.mjs train\` for the full pipeline. Check if the nightly cron (2 AM) is configured to handle this automatically.`,
+          prompt: `${stats.unusedPairs} unused training pairs available and last training run was ${Math.round(hoursSinceLastRun)}h ago (${lastRun.version}, loss: ${lastRun.valid_loss?.toFixed(3) || "?"}). Current active model: ${activeVersion?.version || "unknown"}. Consider running a new training cycle: prepare data, fine-tune, evaluate, and deploy. Run \`bun ~/familiar/trainer/forge-cli.mjs train\` for the full pipeline. Check if the nightly cron (2 AM) is configured to handle this automatically.`,
           priority: 30,
         };
       }
@@ -217,7 +217,7 @@ function checkModelTraining() {
       // No training run has ever completed, but we have data
       return {
         trigger: "model_training",
-        prompt: `${stats.unusedPairs} unused training pairs available but no completed training runs found. The forge pipeline may need initialization. Run \`bun ~/engie/trainer/forge-cli.mjs status\` to check the current state, then \`bun ~/engie/trainer/forge-cli.mjs train\` to kick off a training run.`,
+        prompt: `${stats.unusedPairs} unused training pairs available but no completed training runs found. The forge pipeline may need initialization. Run \`bun ~/familiar/trainer/forge-cli.mjs status\` to check the current state, then \`bun ~/familiar/trainer/forge-cli.mjs train\` to kick off a training run.`,
         priority: 30,
       };
     }
@@ -228,7 +228,7 @@ function checkModelTraining() {
       if (hoursSinceStart > 4) {
         return {
           trigger: "model_training",
-          prompt: `Training run ${lastRun.version} appears stuck — started ${Math.round(hoursSinceStart)}h ago and still in 'running' status. Check if the process is alive, look at training logs in ~/engie/trainer/logs/, and consider failing the run in the forge DB so a new one can be started.`,
+          prompt: `Training run ${lastRun.version} appears stuck — started ${Math.round(hoursSinceStart)}h ago and still in 'running' status. Check if the process is alive, look at training logs in ~/familiar/trainer/logs/, and consider failing the run in the forge DB so a new one can be started.`,
           priority: 30,
         };
       }
@@ -237,7 +237,7 @@ function checkModelTraining() {
     if (lastRun?.status === "failed") {
       return {
         trigger: "model_training",
-        prompt: `Last training run ${lastRun.version} failed. ${stats.unusedPairs} unused pairs waiting. Check logs in ~/engie/trainer/logs/ for the failure reason. Common issues: OOM on Metal GPU (reduce --max-seq-length), Ollama still loaded (needs to be stopped before training), or data format issues. Fix the issue and retry with \`bun ~/engie/trainer/forge-cli.mjs train\`.`,
+        prompt: `Last training run ${lastRun.version} failed. ${stats.unusedPairs} unused pairs waiting. Check logs in ~/familiar/trainer/logs/ for the failure reason. Common issues: OOM on Metal GPU (reduce --max-seq-length), Ollama still loaded (needs to be stopped before training), or data format issues. Fix the issue and retry with \`bun ~/familiar/trainer/forge-cli.mjs train\`.`,
         priority: 30,
       };
     }
@@ -261,7 +261,7 @@ function checkWeightTuning() {
     if (!latestEval) {
       return {
         trigger: "weight_tuning",
-        prompt: `Active model ${activeVersion.version} has no benchmark evaluation. Run \`bun ~/engie/trainer/forge-cli.mjs eval\` to benchmark it against coding-tasks.jsonl. This scores syntax validity, test passing, similarity, and completeness. Results will be stored in the forge DB for version comparison.`,
+        prompt: `Active model ${activeVersion.version} has no benchmark evaluation. Run \`bun ~/familiar/trainer/forge-cli.mjs eval\` to benchmark it against coding-tasks.jsonl. This scores syntax validity, test passing, similarity, and completeness. Results will be stored in the forge DB for version comparison.`,
         priority: 25,
       };
     }
@@ -278,7 +278,7 @@ function checkWeightTuning() {
       if (unevaluated.length > 0) {
         return {
           trigger: "weight_tuning",
-          prompt: `${unevaluated.length} model version(s) haven't been benchmarked: ${unevaluated.map((v) => v.version).join(", ")}. Run \`bun ~/engie/trainer/forge-cli.mjs eval\` to score them. Compare against active model ${activeVersion.version} (score: ${latestEval.overall_score?.toFixed(1) || "?"}). If a newer version scores higher, consider deploying it with \`bun ~/engie/trainer/forge-cli.mjs deploy\`.`,
+          prompt: `${unevaluated.length} model version(s) haven't been benchmarked: ${unevaluated.map((v) => v.version).join(", ")}. Run \`bun ~/familiar/trainer/forge-cli.mjs eval\` to score them. Compare against active model ${activeVersion.version} (score: ${latestEval.overall_score?.toFixed(1) || "?"}). If a newer version scores higher, consider deploying it with \`bun ~/familiar/trainer/forge-cli.mjs deploy\`.`,
           priority: 25,
         };
       }
@@ -286,7 +286,7 @@ function checkWeightTuning() {
       // Run self-iteration to generate new benchmark traces
       return {
         trigger: "weight_tuning",
-        prompt: `Last benchmark for ${activeVersion.version} was ${Math.round(hoursSinceEval)}h ago (score: ${latestEval.overall_score?.toFixed(1) || "?"}). Run a self-iteration loop to test the model on real coding tasks and collect training traces: \`bun ~/engie/trainer/self-iterate.mjs\`. This generates new data points and identifies where the model struggles.`,
+        prompt: `Last benchmark for ${activeVersion.version} was ${Math.round(hoursSinceEval)}h ago (score: ${latestEval.overall_score?.toFixed(1) || "?"}). Run a self-iteration loop to test the model on real coding tasks and collect training traces: \`bun ~/familiar/trainer/self-iterate.mjs\`. This generates new data points and identifies where the model struggles.`,
         priority: 25,
       };
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Post-session summary for a git repo.
-// Generates a lightweight summary and stores it in Engie's memory DB,
+// Generates a lightweight summary and stores it in Familiar's memory DB,
 // plus logs to the activity server so Telegram can push it.
 
 import { execSync } from "child_process";

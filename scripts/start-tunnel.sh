@@ -10,7 +10,7 @@ LOG_DIR="${HOME}/.familiar/logs"
 TUNNEL_LOG="${LOG_DIR}/cloudflared.log"
 URL_FILE="${LOG_DIR}/tunnel-url.txt"
 
-PROXY_PORT="${ENGIE_PROXY_PORT:-18791}"
+PROXY_PORT="${FAMILIAR_PROXY_PORT:-${ENGIE_PROXY_PORT:-18791}}"
 VERCEL_PROJECT="wyliewhimsyco"
 
 mkdir -p "$LOG_DIR"

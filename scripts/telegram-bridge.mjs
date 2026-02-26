@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// Telegram Bridge — unified Telegram <-> Engie gateway + terminal sessions.
+// Telegram Bridge — unified Telegram <-> Familiar gateway + terminal sessions.
 // - Receives Telegram messages via long-polling
-// - Routes normal chat to Engie (CozyTerm gateway)
-// - Starts/controls local terminal sessions (claude/codex/engie/ollama)
+// - Routes normal chat to Familiar gateway
+// - Starts/controls local terminal sessions (claude/codex/familiar/ollama)
 // - Sends terminal output + input prompts back to Telegram
 
 import { spawnSync } from "child_process";
@@ -955,7 +955,7 @@ async function handleListSessions(chatId) {
   await tgSend(chatId, `Active sessions:\n${lines.join("\n")}`);
 }
 
-// ── Engie Chat Relay ──────────────────────────────────────────────────────
+// ── Familiar Chat Relay ──────────────────────────────────────────────────
 
 function sessionKeyForChat(chatId) {
   return `telegram:${chatId}`;
@@ -966,10 +966,10 @@ const MAX_CHAT_HISTORY = 20;
 
 // Role-specific system prompts — one brain, different hats
 const ROLE_SYSTEMS = {
-  coding: "You are Engie, Grant's AI coding assistant. Write clean, well-structured code with clear explanations. Keep replies concise.",
-  reasoning: "You are Engie, Grant's AI assistant. Think step by step. When debugging, trace from symptom to root cause. When planning, identify dependencies and risks. Keep replies concise.",
-  tools: "You are Engie, Grant's AI assistant. You're great at navigating codebases and running shell commands. Explain what you'd do and why. Keep replies concise.",
-  chat: "You are Engie, Grant's AI assistant built by Engindearing. You run on a MacBook and can access the local filesystem, run shell commands, read/write files, search code, and query APIs — but only when the user asks you to do something specific. You don't have direct access in this conversation mode; when a task requires file access, commands, or tools, tell the user what you'd do and suggest they phrase it as a specific request (e.g. 'list files in ~/projects'). Those get routed to your tool-capable mode automatically. Keep replies concise. If unsure, say so honestly rather than guessing.",
+  coding: "You are Familiar, Grant's AI coding assistant from familiar.run. Write clean, well-structured code with clear explanations. Keep replies concise.",
+  reasoning: "You are Familiar, Grant's AI assistant from familiar.run. Think step by step. When debugging, trace from symptom to root cause. When planning, identify dependencies and risks. Keep replies concise.",
+  tools: "You are Familiar, Grant's AI assistant from familiar.run. You're great at navigating codebases and running shell commands. Explain what you'd do and why. Keep replies concise.",
+  chat: "You are Familiar, Grant's AI assistant from familiar.run. You run on a MacBook and can access the local filesystem, run shell commands, read/write files, search code, and query APIs — but only when the user asks you to do something specific. You don't have direct access in this conversation mode; when a task requires file access, commands, or tools, tell the user what you'd do and suggest they phrase it as a specific request (e.g. 'list files in ~/projects'). Those get routed to your tool-capable mode automatically. Keep replies concise. If unsure, say so honestly rather than guessing.",
 };
 
 /**
@@ -1053,20 +1053,20 @@ async function sendViaGateway(sessionKey, message) {
   });
 }
 
-async function sendToEngie(chatId, message) {
+async function sendToFamiliar(chatId, message) {
   const sessionKey = sessionKeyForChat(chatId);
   const { type: role } = classifyPrompt(message);
 
   // Try gateway first — gives full agent capabilities (tool loop, routing, Forge training)
   try {
-    console.log(`[sendToEngie] role=${role} trying gateway at :${GW_PORT}...`);
+    console.log(`[sendToFamiliar] role=${role} trying gateway at :${GW_PORT}...`);
     const text = await sendViaGateway(sessionKey, message);
     historyAppend(sessionKey, "user", message, MAX_CHAT_HISTORY);
     historyAppend(sessionKey, "assistant", text, MAX_CHAT_HISTORY);
-    console.log(`[sendToEngie] gateway response length: ${text.length}`);
+    console.log(`[sendToFamiliar] gateway response length: ${text.length}`);
     return { text, role, fallback: false };
   } catch (gwErr) {
-    console.warn(`[sendToEngie] gateway failed: ${gwErr.message}, falling back to direct ollama`);
+    console.warn(`[sendToFamiliar] gateway failed: ${gwErr.message}, falling back to direct ollama`);
   }
 
   // Fallback: direct ollamaChat (no tools, no Forge collection, but still works)
@@ -1081,14 +1081,14 @@ async function sendToEngie(chatId, message) {
   ];
 
   try {
-    console.log(`[sendToEngie] role=${role} calling ollama direct (history: ${history.length} msgs)...`);
+    console.log(`[sendToFamiliar] role=${role} calling ollama direct (history: ${history.length} msgs)...`);
     const text = await ollamaChat(CHAT_MODEL, messages, { temperature, maxTokens: 1500 });
     historyAppend(sessionKey, "user", message, MAX_CHAT_HISTORY);
     historyAppend(sessionKey, "assistant", text, MAX_CHAT_HISTORY);
-    console.log("[sendToEngie] direct response length:", text.length);
+    console.log("[sendToFamiliar] direct response length:", text.length);
     return { text, role, fallback: true };
   } catch (e) {
-    console.error("[sendToEngie] error:", e.message);
+    console.error("[sendToFamiliar] error:", e.message);
     return { text: `Sorry, I ran into an error: ${e.message}`, fallback: true };
   }
 }
@@ -1175,7 +1175,7 @@ async function handleTelegramMessage(msg) {
     if (pre.action === "asked") return;
     logActivity("telegram-bridge", "user", forcedText, sessionKeyForChat(chatId));
     const comparePromise = runComparisons(pre.prompt);
-    const reply = await sendToEngie(chatId, pre.prompt);
+    const reply = await sendToFamiliar(chatId, pre.prompt);
     await tgSend(chatId, reply.text);
     logActivity("telegram-bridge", "assistant", reply.text, sessionKeyForChat(chatId));
 
@@ -1213,7 +1213,7 @@ async function handleTelegramMessage(msg) {
     const pre = await preprocessPrompt(chatId, combined, { allowClarify: false });
     if (pre.action === "asked") return;
     logActivity("telegram-bridge", "user", combined, sessionKeyForChat(chatId));
-    const reply = await sendToEngie(chatId, pre.prompt);
+    const reply = await sendToFamiliar(chatId, pre.prompt);
     await tgSend(chatId, reply.text);
     logActivity("telegram-bridge", "assistant", reply.text, sessionKeyForChat(chatId));
     return;
@@ -1231,9 +1231,9 @@ async function handleTelegramMessage(msg) {
     return;
   }
 
-  // Otherwise forward to Engie directly (no preprocessing)
+  // Otherwise forward to Familiar directly (no preprocessing)
   logActivity("telegram-bridge", "user", text, sessionKeyForChat(chatId));
-  const reply = await sendToEngie(chatId, text);
+  const reply = await sendToFamiliar(chatId, text);
   if (reply.text) await tgSend(chatId, reply.text);
   logActivity("telegram-bridge", "assistant", reply.text, sessionKeyForChat(chatId));
 

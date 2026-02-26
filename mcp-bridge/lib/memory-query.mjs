@@ -1,4 +1,4 @@
-// Thin wrappers: read from Engie's SQLite memory DB via Bun subprocess.
+// Thin wrappers: read from Familiar's SQLite memory DB via Bun subprocess.
 // Same pattern as observe.mjs — MCP bridge runs under Node, memory-db.js uses bun:sqlite.
 
 import { execFileSync } from "child_process";

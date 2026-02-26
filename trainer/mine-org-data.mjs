@@ -4,7 +4,7 @@
 // Scans MarekHealth GitHub repos for issues, PRs, and commits.
 // Constructs coding prompts from real-world context and collects training pairs.
 //
-// Usage: bun ~/engie/trainer/mine-org-data.mjs [--max-repos 20] [--max-items 10]
+// Usage: bun ~/familiar/trainer/mine-org-data.mjs [--max-repos 20] [--max-items 10]
 
 import { execSync } from "child_process";
 import { appendFileSync, mkdirSync, existsSync } from "fs";

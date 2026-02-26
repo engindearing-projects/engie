@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 // The Forge — Standalone CLI
-// Can be run directly: bun ~/engie/trainer/forge-cli.mjs <command>
-// Or via engie: engie forge <command>
+// Can be run directly: bun ~/familiar/trainer/forge-cli.mjs <command>
+// Or via familiar: familiar forge <command>
 
 import chalk from "chalk";
 import { resolve, dirname } from "path";
@@ -50,7 +50,7 @@ const HELP = `
 function ensureVenv() {
   if (!existsSync(VENV_PYTHON)) {
     console.error(chalk.red("Python venv not found. Run setup first:"));
-    console.error(chalk.dim("  bash ~/engie/trainer/setup.sh"));
+    console.error(chalk.dim("  bash ~/familiar/trainer/setup.sh"));
     process.exit(1);
   }
 }
@@ -662,7 +662,7 @@ async function cmdRollback() {
 
 async function cmdAuto(action) {
   const { execSync } = await import("child_process");
-  const svc = "com.engie.forge-auto";
+  const svc = "com.familiar.forge-auto";
   const plist = `${process.env.HOME}/Library/LaunchAgents/${svc}.plist`;
 
   if (action === "start") {
@@ -672,7 +672,7 @@ async function cmdAuto(action) {
     try {
       execSync(`launchctl bootstrap gui/$(id -u) ${plist}`, { stdio: "inherit" });
       console.log(chalk.green(`\n  Auto-trainer started (${svc})`));
-      console.log(chalk.dim(`  Logs: ~/engie/trainer/logs/forge-auto.log`));
+      console.log(chalk.dim(`  Logs: ~/familiar/trainer/logs/forge-auto.log`));
     } catch (e) {
       console.error(chalk.red(`  Failed to start: ${e.message}`));
     }

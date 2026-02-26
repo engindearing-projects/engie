@@ -113,7 +113,7 @@ PLIST
         <key>CLAUDE_PROXY_PORT</key><string>18791</string>
         <key>CLAUDE_PROXY_MODEL</key><string>sonnet</string>
         <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-        <key>ENGIE_TRAINING_MODE</key><string>true</string>
+        <key>FAMILIAR_TRAINING_MODE</key><string>true</string>
     </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
@@ -140,7 +140,7 @@ PLIST
     <key>WorkingDirectory</key><string>$HOME/wyliewhimsyco</string>
     <key>EnvironmentVariables</key>
     <dict>
-        <key>ENGIE_PROXY_PORT</key><string>18791</string>
+        <key>FAMILIAR_PROXY_PORT</key><string>18791</string>
         <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key><string>$HOME</string>
     </dict>

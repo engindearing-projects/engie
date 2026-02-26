@@ -1,4 +1,4 @@
-// System prerequisite checks for Engie.
+// System prerequisite checks for Familiar.
 // Each check is safe — catches errors and returns { installed: false } on failure.
 
 import { execSync } from "child_process";

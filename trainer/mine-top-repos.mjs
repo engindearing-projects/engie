@@ -6,7 +6,7 @@
 // Feeds to both Claude and familiar-coder, scores against gold, stores for training.
 //
 // Usage:
-//   bun ~/engie/trainer/mine-top-repos.mjs [--langs js,py,go] [--max-repos 100] [--max-prs 5] [--refresh]
+//   bun ~/familiar/trainer/mine-top-repos.mjs [--langs js,py,go] [--max-repos 100] [--max-prs 5] [--refresh]
 
 import { execSync } from "child_process";
 import { appendFileSync, mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";

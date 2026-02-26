@@ -82,19 +82,19 @@ export function generateGatewayConfig({ token }) {
     ],
     agents: [
       {
-        id: "engie",
-        displayName: "Engie",
+        id: "familiar",
+        displayName: "Familiar",
         provider: "claude-proxy",
         model: "sonnet",
         systemPrompt:
-          "You are Engie, a persistent AI assistant. You help with coding, debugging, research, and general tasks. You have access to local tools and integrations via MCP.",
+          "You are Familiar, a persistent AI assistant from familiar.run. You help with coding, debugging, research, and general tasks. You have access to local tools and integrations via MCP.",
         maxTokens: 4096,
         temperature: 0.3,
       },
     ],
     sessions: {
-      defaultAgent: "engie",
-      defaultKey: "agent:engie:main",
+      defaultAgent: "familiar",
+      defaultKey: "agent:familiar:main",
       persistence: {
         enabled: true,
         dir: resolve(memoryDir(), "sessions"),

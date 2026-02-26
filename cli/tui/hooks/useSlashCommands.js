@@ -91,7 +91,7 @@ export function useSlashCommands({ gateway, app, setMessages, setStreamText, sen
         setMessages((prev) => [
           ...prev,
           sysMsg(newMode
-            ? "Coaching mode ON — Engie will give warmer explanations with suggestions."
+            ? "Coaching mode ON — Familiar will give warmer explanations with suggestions."
             : "Coaching mode OFF — back to standard mode."
           ),
         ]);

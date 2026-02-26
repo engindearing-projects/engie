@@ -33,7 +33,7 @@ const HELP = `
     engie forge <cmd>         Training pipeline (status, train, eval, compare, data, rollback)
 
   ${chalk.cyan("Options:")}
-    -s, --session <key>   Session key (default: agent:engie:main)
+    -s, --session <key>   Session key (default: agent:familiar:main)
     -h, --help            Show this help
     -v, --version         Show version
 
@@ -64,7 +64,7 @@ async function main() {
   }
 
   // Extract --session / -s before routing
-  let sessionKey = "agent:engie:main";
+  let sessionKey = "agent:familiar:main";
   const sessionIdx = args.findIndex((a) => a === "--session" || a === "-s");
   if (sessionIdx !== -1) {
     sessionKey = args[sessionIdx + 1] || sessionKey;

@@ -14,7 +14,7 @@
 //   6. Store pair with ground-truth reference for training
 //
 // Usage:
-//   bun ~/engie/trainer/mine-ground-truth.mjs [--sources MarekHealth,jfuginay] [--max-prs 10]
+//   bun ~/familiar/trainer/mine-ground-truth.mjs [--sources MarekHealth,jfuginay] [--max-prs 10]
 
 import { execSync } from "child_process";
 import { appendFileSync, mkdirSync, existsSync } from "fs";

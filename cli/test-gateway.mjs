@@ -43,7 +43,7 @@ ws.on("message", (raw) => {
     ws.send(JSON.stringify({
       type: "req", id: nextId(), method: "chat.send",
       params: {
-        sessionKey: `agent:engie:cli-test-${Date.now()}`,
+        sessionKey: `agent:familiar:cli-test-${Date.now()}`,
         message: "Say hello in 5 words.",
         idempotencyKey: randomUUID(),
       },

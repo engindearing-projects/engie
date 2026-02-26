@@ -1,4 +1,4 @@
-// Thin wrapper: write an observation to Engie's SQLite memory DB via Bun subprocess.
+// Thin wrapper: write an observation to Familiar's SQLite memory DB via Bun subprocess.
 // The MCP bridge runs under Node, but memory-db.js uses bun:sqlite,
 // so we shell out to Bun to avoid native dependency issues.
 

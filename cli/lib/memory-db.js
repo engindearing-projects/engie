@@ -1,4 +1,4 @@
-// Structured memory system for Engie — SQLite + FTS5 powered by bun:sqlite.
+// Structured memory system for Familiar — SQLite + FTS5 powered by bun:sqlite.
 // Stores observations (task updates, decisions, blockers, insights) with full-text search.
 // Zero native deps — bun:sqlite is built into the Bun runtime.
 

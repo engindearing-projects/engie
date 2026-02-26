@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-// Engie-Coder Tool Definitions + Executors
+// Familiar-Coder Tool Definitions + Executors
 // Provides 10 tools for the agentic tool loop: bash, read_file, write_file,
 // edit_file, glob, grep, memory_search, memory_store, memory_recent, list_tools.
 //
@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 
 const HOME = process.env.HOME || "/tmp";
-const DEFAULT_CWD = resolve(HOME, "engie/workspace");
+const DEFAULT_CWD = resolve(HOME, "familiar/workspace");
 const BASH_TIMEOUT_MS = 30_000;
 const MAX_BASH_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_CHARS = 8000;
@@ -65,7 +65,7 @@ const TOOL_SCHEMAS = [
     parameters: {
       command: { type: "string", description: "The shell command to execute", required: true },
       timeout: { type: "number", description: "Timeout in milliseconds (default 30000, max 60000)" },
-      cwd: { type: "string", description: "Working directory (default: ~/engie/workspace)" },
+      cwd: { type: "string", description: "Working directory (default: ~/familiar/workspace)" },
     },
   },
   {
@@ -115,7 +115,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: "memory_search",
-    description: "Search Engie's memory database using full-text search. Returns past observations, decisions, and findings.",
+    description: "Search Familiar's memory database using full-text search. Returns past observations, decisions, and findings.",
     parameters: {
       query: { type: "string", description: "Search query", required: true },
       type: { type: "string", description: "Filter by type (task_update, decision, blocker, insight)" },
@@ -125,7 +125,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: "memory_store",
-    description: "Store a new observation in Engie's memory database. Use this for important decisions, findings, or task updates.",
+    description: "Store a new observation in Familiar's memory database. Use this for important decisions, findings, or task updates.",
     parameters: {
       type: { type: "string", description: "Observation type: task_update, decision, blocker, insight, note", required: true },
       summary: { type: "string", description: "Brief summary of the observation", required: true },
@@ -136,7 +136,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: "memory_recent",
-    description: "Get recent observations from Engie's memory. Useful for understanding recent context.",
+    description: "Get recent observations from Familiar's memory. Useful for understanding recent context.",
     parameters: {
       limit: { type: "number", description: "Number of recent observations (default 10)" },
       project: { type: "string", description: "Filter by project name" },

@@ -222,7 +222,7 @@ export class Collector {
           taskType: classification.type,
           taskTypeConfidence: classification.confidence,
         });
-        console.log(`[Forge Collector] Comparison [${classification.type}] saved (claude=${claudeDurationMs}ms engie=${engieDurationMs}ms)`);
+        console.log(`[Forge Collector] Comparison [${classification.type}] saved (claude=${claudeDurationMs}ms familiar=${engieDurationMs}ms)`);
       } catch (err) {
         console.error("[Forge Collector] Comparison error:", err.message);
       }

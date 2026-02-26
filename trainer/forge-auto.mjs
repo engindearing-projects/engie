@@ -4,11 +4,11 @@
 // Watches forge.db for new training pairs and automatically triggers
 // the full pipeline: prepare → train → deploy → evaluate → rollback if needed.
 //
-// Runs as a launchd service (com.engie.forge-auto) or standalone.
+// Runs as a launchd service (com.familiar.forge-auto) or standalone.
 // Sends Telegram notifications on train completion or failure.
 //
 // Usage:
-//   bun ~/engie/trainer/forge-auto.mjs [--threshold 100] [--interval 300] [--dry-run]
+//   bun ~/familiar/trainer/forge-auto.mjs [--threshold 100] [--interval 300] [--dry-run]
 
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";

@@ -17,7 +17,7 @@ import chalk from "chalk";
 const VERSION = "0.6.0";
 
 const HELP = `
-  ${chalk.bold("cozy")} v${VERSION} — AI project manager CLI (powered by Engie)
+  ${chalk.bold("cozy")} v${VERSION} — AI project manager CLI (powered by Familiar)
 
   ${chalk.cyan("Usage:")}
     cozy                      Interactive chat (TUI)
@@ -32,7 +32,7 @@ const HELP = `
                               Save an observation to memory
 
   ${chalk.cyan("Options:")}
-    -s, --session <key>   Session key (default: agent:engie:main)
+    -s, --session <key>   Session key (default: agent:familiar:main)
     --coach               Start with coaching mode enabled
     -h, --help            Show this help
     -v, --version         Show version
@@ -68,7 +68,7 @@ async function main() {
   }
 
   // Extract --session / -s before routing
-  let sessionKey = "agent:engie:main";
+  let sessionKey = "agent:familiar:main";
   const sessionIdx = args.findIndex((a) => a === "--session" || a === "-s");
   if (sessionIdx !== -1) {
     sessionKey = args[sessionIdx + 1] || sessionKey;

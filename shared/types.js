@@ -1,5 +1,5 @@
 // Shared type definitions — JSDoc for CLI, referenced by mobile TypeScript.
-// These define the canonical shapes used across all Engie interfaces.
+// These define the canonical shapes used across all Familiar interfaces.
 
 /**
  * @typedef {'user' | 'assistant' | 'system'} MessageRole

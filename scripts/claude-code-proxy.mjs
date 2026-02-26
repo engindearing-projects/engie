@@ -65,24 +65,24 @@ const PORT = parseInt(process.env.CLAUDE_PROXY_PORT || "18791", 10);
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
 const MAX_TIMEOUT_MS = 600_000; // 10 min
 const DEFAULT_MODEL = process.env.CLAUDE_PROXY_MODEL || "sonnet";
-const TRAINING_MODE = process.env.ENGIE_TRAINING_MODE === "true";
+const TRAINING_MODE = process.env.FAMILIAR_TRAINING_MODE === "true" || process.env.ENGIE_TRAINING_MODE === "true";
 
-// ── CozyTerm-specific constants ──────────────────────────────────────────────
+// ── Familiar-specific constants ──────────────────────────────────────────────
 
 /** Tools that would create circular calls back through the gateway/proxy */
-const ENGIE_DISALLOWED_TOOLS = [
-  "mcp__engie__engie_chat",
-  "mcp__engie__engie_claude",
+const FAMILIAR_DISALLOWED_TOOLS = [
+  "mcp__familiar__familiar_chat",
+  "mcp__familiar__familiar_claude",
 ];
 
-const ENGIE_MAX_TURNS = 25;
-const ENGIE_TIMEOUT_MS = 300_000; // 5 min — coding tasks need room
-const ENGIE_MCP_CONFIG = resolve(PROJECT_DIR, "config", "mcp-tools.json");
+const FAMILIAR_MAX_TURNS = 25;
+const FAMILIAR_TIMEOUT_MS = 300_000; // 5 min — coding tasks need room
+const FAMILIAR_MCP_CONFIG = resolve(PROJECT_DIR, "config", "mcp-tools.json");
 
-/** System preamble prepended to whatever CozyTerm sends */
-const ENGIE_SYSTEM_PREAMBLE = [
-  "You are Engie, an AI project manager and coding assistant.",
-  "You have read/write access to local memory files in ~/.cozyterm/memory/.",
+/** System preamble prepended to whatever Familiar sends */
+const FAMILIAR_SYSTEM_PREAMBLE = [
+  "You are Familiar, an AI project manager and coding assistant from familiar.run.",
+  "You have read/write access to local memory files in ~/.familiar/memory/.",
   "You have full access to the filesystem, Bash, and all standard Claude Code tools.",
   "You have MCP tools for Jira (Atlassian), Slack, and Figma.",
   "",
@@ -142,13 +142,13 @@ setInterval(() => {
 function sendSyntheticResponse(res, id, created, content, stream) {
   if (stream) {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-    res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-assistant", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] })}\n\n`);
-    res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "engie-assistant", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+    res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-assistant", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] })}\n\n`);
+    res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-assistant", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
     res.write("data: [DONE]\n\n");
     res.end();
   } else {
     jsonResponse(res, 200, {
-      id, object: "chat.completion", created, model: "engie-assistant",
+      id, object: "chat.completion", created, model: "familiar-assistant",
       choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
     });
@@ -165,7 +165,7 @@ function fireDualComparison({ prompt, category, details, claudeText, claudeDurat
         body: JSON.stringify({
           model: "familiar-coder:latest",
           messages: [
-            { role: "system", content: "You are Engie, an expert coding assistant. Write clean, well-structured code with clear explanations." },
+            { role: "system", content: "You are Familiar, an expert coding assistant from familiar.run. Write clean, well-structured code with clear explanations." },
             { role: "user", content: prompt },
           ],
           stream: false,
@@ -173,8 +173,8 @@ function fireDualComparison({ prompt, category, details, claudeText, claudeDurat
         signal: AbortSignal.timeout(120_000),
       });
       const data = await resp.json();
-      const engieText = data.choices?.[0]?.message?.content || "";
-      const engieDuration = Date.now() - start;
+      const familiarText = data.choices?.[0]?.message?.content || "";
+      const familiarDuration = Date.now() - start;
 
       const collector = await getCollector();
       if (collector) {
@@ -184,13 +184,13 @@ function fireDualComparison({ prompt, category, details, claudeText, claudeDurat
           context: details,
           claudeResponse: claudeText,
           claudeDurationMs: claudeDuration,
-          engieResponse: engieText,
-          engieDurationMs: engieDuration,
+          engieResponse: familiarText,
+          engieDurationMs: familiarDuration,
           sessionKey,
           complexityScore,
         });
       }
-      console.log(`[Training] Comparison stored (claude=${claudeDuration}ms engie=${engieDuration}ms engie_len=${engieText.length})`);
+      console.log(`[Training] Comparison stored (claude=${claudeDuration}ms familiar=${familiarDuration}ms familiar_len=${familiarText.length})`);
     } catch (err) {
       console.log(`[Training] Comparison failed: ${err.message}`);
     }
@@ -508,7 +508,7 @@ const server = createServer(async (req, res) => {
 
     // Extract the last user message for routing decisions
     let lastUserMessage = "";
-    let systemPrompt = ENGIE_SYSTEM_PREAMBLE;
+    let systemPrompt = FAMILIAR_SYSTEM_PREAMBLE;
     const nonSystemMessages = [];
     for (const msg of messages) {
       if (msg.role === "system") {
@@ -571,11 +571,11 @@ const server = createServer(async (req, res) => {
           systemPrompt: isFollowUp ? undefined : (systemPrompt || undefined),
           outputFormat: "json",
           permissionMode: "bypassPermissions",
-          disallowedTools: ENGIE_DISALLOWED_TOOLS,
-          maxTurns: ENGIE_MAX_TURNS,
+          disallowedTools: FAMILIAR_DISALLOWED_TOOLS,
+          maxTurns: FAMILIAR_MAX_TURNS,
           addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
-          timeoutMs: ENGIE_TIMEOUT_MS,
-          mcpConfig: ENGIE_MCP_CONFIG,
+          timeoutMs: FAMILIAR_TIMEOUT_MS,
+          mcpConfig: FAMILIAR_MCP_CONFIG,
           resumeSession: isFollowUp ? existingClaudeSession.sessionId : undefined,
         });
         const claudeDuration = Date.now() - claudeStart;
@@ -626,7 +626,7 @@ const server = createServer(async (req, res) => {
       try {
         const loopResult = await runToolLoop({
           prompt: lastUserMessage,
-          systemPrompt: routeResult.systemPrompt || (systemPrompt !== ENGIE_SYSTEM_PREAMBLE ? systemPrompt : ""),
+          systemPrompt: routeResult.systemPrompt || (systemPrompt !== FAMILIAR_SYSTEM_PREAMBLE ? systemPrompt : ""),
           model: "familiar-coder:latest",
           maxIterations: 10,
           maxToolCalls: 25,
@@ -705,11 +705,11 @@ const server = createServer(async (req, res) => {
           systemPrompt: isFollowUp ? undefined : (systemPrompt || undefined),
           outputFormat: "json",
           permissionMode: "bypassPermissions",
-          disallowedTools: ENGIE_DISALLOWED_TOOLS,
-          maxTurns: ENGIE_MAX_TURNS,
+          disallowedTools: FAMILIAR_DISALLOWED_TOOLS,
+          maxTurns: FAMILIAR_MAX_TURNS,
           addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
-          timeoutMs: ENGIE_TIMEOUT_MS,
-          mcpConfig: ENGIE_MCP_CONFIG,
+          timeoutMs: FAMILIAR_TIMEOUT_MS,
+          mcpConfig: FAMILIAR_MCP_CONFIG,
           resumeSession: isFollowUp ? existingClaudeSession.sessionId : undefined,
         });
 
@@ -768,11 +768,11 @@ const server = createServer(async (req, res) => {
               systemPrompt: systemPrompt || undefined,
               outputFormat: "json",
               permissionMode: "bypassPermissions",
-              disallowedTools: ENGIE_DISALLOWED_TOOLS,
-              maxTurns: ENGIE_MAX_TURNS,
+              disallowedTools: FAMILIAR_DISALLOWED_TOOLS,
+              maxTurns: FAMILIAR_MAX_TURNS,
               addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
-              timeoutMs: ENGIE_TIMEOUT_MS,
-              mcpConfig: ENGIE_MCP_CONFIG,
+              timeoutMs: FAMILIAR_TIMEOUT_MS,
+              mcpConfig: FAMILIAR_MCP_CONFIG,
             });
             if (result.session_id) setSession(sessionKey, result.session_id);
             const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
@@ -805,11 +805,11 @@ const server = createServer(async (req, res) => {
         systemPrompt: isFollowUp ? undefined : (systemPrompt || undefined),
         outputFormat: "json",
         permissionMode: "bypassPermissions",
-        disallowedTools: ENGIE_DISALLOWED_TOOLS,
-        maxTurns: ENGIE_MAX_TURNS,
+        disallowedTools: FAMILIAR_DISALLOWED_TOOLS,
+        maxTurns: FAMILIAR_MAX_TURNS,
         addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
-        timeoutMs: ENGIE_TIMEOUT_MS,
-        mcpConfig: ENGIE_MCP_CONFIG,
+        timeoutMs: FAMILIAR_TIMEOUT_MS,
+        mcpConfig: FAMILIAR_MCP_CONFIG,
         resumeSession: isFollowUp ? existingClaudeSession.sessionId : undefined,
       });
 

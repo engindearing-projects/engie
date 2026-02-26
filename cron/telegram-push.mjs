@@ -29,7 +29,7 @@ if (!BOT_TOKEN) {
 // Default chat ID from paired Telegram DM session
 if (!CHAT_ID) {
   try {
-    const sessPath = resolve(__dirname, "../config/agents/engie/sessions/sessions.json");
+    const sessPath = resolve(__dirname, "../config/agents/familiar/sessions/sessions.json");
     const sessions = JSON.parse(readFileSync(sessPath, "utf8"));
     for (const sess of Object.values(sessions)) {
       const from = sess.origin?.from;
