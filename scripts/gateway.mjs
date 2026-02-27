@@ -23,6 +23,17 @@ import {
 } from "./shared-invoke.mjs";
 import { Router } from "./router.mjs";
 import { runToolLoop } from "./tool-loop.mjs";
+import {
+  createSession as dbCreateSession,
+  listSessions as dbListSessions,
+  getSessionById as dbGetSession,
+  renameSession as dbRenameSession,
+  archiveSession as dbArchiveSession,
+  addSessionMessage as dbAddMessage,
+  getSessionMessages as dbGetMessages,
+  forkSession as dbForkSession,
+  autoTitleSession as dbAutoTitle,
+} from "./session-store.mjs";
 
 stripSessionEnv();
 
@@ -56,6 +67,7 @@ const BIND = config.gateway?.bind || "lan";
 // Accepted client IDs
 const ACCEPTED_CLIENT_IDS = new Set([
   "familiar-ui",
+  "familiar-tray",
   "cozyterm-ui",
 ]);
 
@@ -444,6 +456,81 @@ function handleRequest(ws, msg) {
     case "config.get":
       return handleConfigGet(ws, id);
 
+    // ── Persistent Session Management ──
+    case "session.create": {
+      try {
+        const session = dbCreateSession({ title: params.title, workingDir: params.workingDir });
+        return sendTo(ws, { type: "res", id, ok: true, payload: session });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
+    case "session.list": {
+      try {
+        const sessions = dbListSessions({ includeArchived: params.includeArchived, limit: params.limit });
+        return sendTo(ws, { type: "res", id, ok: true, payload: { sessions } });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
+    case "session.get": {
+      try {
+        const session = dbGetSession(params.sessionId);
+        if (!session) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Session not found" } });
+        return sendTo(ws, { type: "res", id, ok: true, payload: session });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
+    case "session.rename": {
+      try {
+        dbRenameSession(params.sessionId, params.title);
+        return sendTo(ws, { type: "res", id, ok: true, payload: { ok: true } });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
+    case "session.archive": {
+      try {
+        dbArchiveSession(params.sessionId, params.archived ?? true);
+        return sendTo(ws, { type: "res", id, ok: true, payload: { ok: true } });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
+    case "session.fork": {
+      try {
+        const forked = dbForkSession(params.sessionId, { title: params.title, upToMessageId: params.upToMessageId });
+        return sendTo(ws, { type: "res", id, ok: true, payload: forked });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
+    case "session.messages": {
+      try {
+        const messages = dbGetMessages(params.sessionId, { limit: params.limit, offset: params.offset });
+        return sendTo(ws, { type: "res", id, ok: true, payload: { messages } });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
+    case "session.addMessage": {
+      try {
+        const msgId = dbAddMessage(params.sessionId, { role: params.role, text: params.text, metadata: params.metadata });
+        dbAutoTitle(params.sessionId);
+        return sendTo(ws, { type: "res", id, ok: true, payload: { messageId: msgId } });
+      } catch (err) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+      }
+    }
+
     default:
       return sendTo(ws, { type: "res", id, ok: false, error: { message: `Unknown method: ${method}` } });
   }
@@ -478,7 +565,7 @@ function handleConnect(ws, id, params) {
     ok: true,
     payload: {
       protocol: 3,
-      server: { id: "cozyterm-gateway", version: "0.6.0" },
+      server: { id: "cozyterm-gateway", version: "1.0.0" },
     },
   });
 }
@@ -500,7 +587,7 @@ async function handleHealth(ws, id) {
     payload: {
       status: "ok",
       gateway: "cozyterm",
-      version: "0.6.0",
+      version: "1.0.0",
       uptime: process.uptime(),
       claudeAvailable: !!bin,
       claudePath: bin,
@@ -547,7 +634,7 @@ const server = Bun.serve({
       return Response.json({
         status: "ok",
         gateway: "cozyterm",
-        version: "0.6.0",
+        version: "1.0.0",
         uptime: process.uptime(),
         claudeAvailable: !!bin,
         activeSessions: sessions.size,
@@ -602,7 +689,7 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 // ── Startup Banner ──────────────────────────────────────────────────────────
 
 const bin = claudeBin();
-console.log(`Familiar Gateway v0.7.0 (Multi-Model Forge Training)`);
+console.log(`Familiar Gateway v1.0.0 (Multi-Model Forge Training)`);
 console.log(`  listening:    ${hostname}:${PORT}`);
 console.log(`  config:       ${configPath || "none"}`);
 console.log(`  sessions TTL: ${SESSION_TTL_MS / 60000} min`);

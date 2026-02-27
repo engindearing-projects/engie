@@ -1,0 +1,44 @@
+[package]
+name = "familiar-tray"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "familiar-tray"
+path = "src/main.rs"
+
+[features]
+default = ["tray"]
+tray = []
+popover = ["dep:wry", "tao/rwh_06"]
+character = ["dep:tiny-skia", "dep:softbuffer", "tao/rwh_06"]
+
+[dependencies]
+tray-icon = "0.21"
+tao = { version = "0.33", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+dirs = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tungstenite = "0.26"
+crossbeam-channel = "0.5"
+
+# Phase 2: popover
+wry = { version = "0.49", optional = true, features = ["transparent"] }
+
+# Phase 3: character
+tiny-skia = { version = "0.11", optional = true }
+softbuffer = { version = "0.4", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3", features = ["CFRunLoop"] }
+objc2 = "0.6"
+objc2-quartz-core = { version = "0.3", features = ["CALayer"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
