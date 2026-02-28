@@ -40,7 +40,7 @@ function getToolLabel(toolName) {
 // Fun idle phrases that cycle while waiting for first token
 // Big pool so it stays fresh — shuffled per session
 const PHRASE_POOL = [
-  "engie-ing",
+  "thinking",
   "doing stuff",
   "brewing thoughts",
   "on it",
@@ -181,7 +181,7 @@ export function StreamingMessage({ text, busy, toolStage, dynamicStatus, continu
 
     return e(Box, { flexDirection: "column", marginLeft: 2, marginTop: 1 },
       e(Box, null,
-        e(Text, { color: colors.cyanDim, bold: true }, "engie "),
+        e(Text, { color: colors.cyanDim, bold: true }, "familiar "),
         spinner,
       ),
       e(Text, { color: isIdle ? colors.gray : colors.green, italic: isIdle },
@@ -193,7 +193,7 @@ export function StreamingMessage({ text, busy, toolStage, dynamicStatus, continu
   // Streaming text arrived
   return e(Box, { flexDirection: "column", marginLeft: 2, marginTop: 1 },
     e(Box, null,
-      e(Text, { color: colors.cyanDim, bold: true }, "engie"),
+      e(Text, { color: colors.cyanDim, bold: true }, "familiar"),
       e(Text, { color: colors.gray }, " "),
       busy
         ? (NO_COLOR

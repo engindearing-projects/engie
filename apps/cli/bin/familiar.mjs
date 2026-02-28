@@ -14,7 +14,7 @@
 
 import chalk from "chalk";
 
-const VERSION = "0.7.0";
+const VERSION = "1.0.0";
 
 const HELP = `
   ${chalk.bold("familiar")} v${VERSION} — get your familiar

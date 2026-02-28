@@ -148,6 +148,42 @@ export class GatewayClient extends EventEmitter {
     return payload;
   }
 
+  // ── Session Management ──
+
+  async sessionCreate({ title, workingDir } = {}) {
+    return this.request("session.create", { title, workingDir });
+  }
+
+  async sessionList({ includeArchived, limit } = {}) {
+    const result = await this.request("session.list", { includeArchived, limit });
+    return result.sessions || [];
+  }
+
+  async sessionGet(sessionId) {
+    return this.request("session.get", { sessionId });
+  }
+
+  async sessionRename(sessionId, title) {
+    return this.request("session.rename", { sessionId, title });
+  }
+
+  async sessionArchive(sessionId, archived = true) {
+    return this.request("session.archive", { sessionId, archived });
+  }
+
+  async sessionFork(sessionId, { title, upToMessageId } = {}) {
+    return this.request("session.fork", { sessionId, title, upToMessageId });
+  }
+
+  async sessionMessages(sessionId, { limit, offset } = {}) {
+    const result = await this.request("session.messages", { sessionId, limit, offset });
+    return result.messages || [];
+  }
+
+  async sessionAddMessage(sessionId, { role, text, metadata } = {}) {
+    return this.request("session.addMessage", { sessionId, role, text, metadata });
+  }
+
   disconnect() {
     this._intentionalClose = true;
     for (const [id, { reject, timer }] of this.pending) {

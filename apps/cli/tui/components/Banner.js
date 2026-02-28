@@ -70,7 +70,7 @@ export function Banner({ files, summary, isCollapsed }) {
   if (NO_COLOR) {
     return e(Box, { flexDirection: "column", marginBottom: 1 },
       e(Box, null,
-        e(Text, null, "engie"),
+        e(Text, null, "familiar"),
         e(Text, null, ` \u00B7 v${VERSION}`)
       ),
       e(Text, null, cwd),
@@ -82,7 +82,7 @@ export function Banner({ files, summary, isCollapsed }) {
 
   return e(Box, { flexDirection: "column", marginBottom: 1 },
     e(Box, null,
-      e(Text, { color: colors.cyan, bold: true }, "engie"),
+      e(Text, { color: colors.cyan, bold: true }, "familiar"),
       e(Text, { color: colors.gray }, ` \u00B7 v${VERSION}`)
     ),
     e(Text, { color: colors.grayDim }, cwd),

@@ -4,6 +4,10 @@ import { evaluateTriggers } from "../../../shared/trigger-cascade.js";
 const DELAY_MS = 3000;
 const MAX_DEPTH = 3;
 
+// Auto-continuation is disabled by default — it sends blocker/todo prompts to the
+// model which derails casual conversation. Enable with FAMILIAR_AUTO_CONTINUE=1.
+const ENABLED = !!process.env.FAMILIAR_AUTO_CONTINUE;
+
 /**
  * Auto-continuation hook — after a response completes and the queue is empty,
  * wait 3s then build a smart continuation prompt from local context.
@@ -66,6 +70,7 @@ export function useAutoContinuation({ busy, queueLength, sendMessage }) {
     if (busy || !wasBusy) return;
 
     // Guards
+    if (!ENABLED) return;
     if (!hasInteractedRef.current) return;
     if (suppressedRef.current) return;
     if (queueLength > 0) return;
