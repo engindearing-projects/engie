@@ -28,6 +28,14 @@ DOMAIN_TARGET="gui/$(id -u)"
 
 ACTION="${1:-install}"
 
+# Source config/.env for tokens used by services (e.g. TELEGRAM_BOT_TOKEN)
+ENV_FILE="$PROJECT_DIR/config/.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  source "$ENV_FILE"
+  set +a
+fi
+
 mkdir -p "$LA_DIR" "$LOG_DIR"
 
 # All service labels

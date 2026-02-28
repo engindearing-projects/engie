@@ -21,6 +21,7 @@ const REGISTRY_PATH = resolve(SKILLS_DIR, "registry.json");
 const IMPROVEMENTS_FILE = resolve(BRAIN_DIR, "reflection/improvements.jsonl");
 
 const OLLAMA_URL = "http://localhost:11434";
+const CLAUDE_PROXY_URL = "http://localhost:18791/v1";
 const BRAIN_MODEL = "familiar-coder:latest";
 const DRY_RUN = process.argv.includes("--dry-run");
 
@@ -72,9 +73,9 @@ async function notify(text) {
   }
 }
 
-// ── Ollama Chat ─────────────────────────────────────────────────────────────
+// ── Chat Providers ──────────────────────────────────────────────────────────
 
-async function chat(systemPrompt, userPrompt) {
+async function chatOllama(systemPrompt, userPrompt) {
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
@@ -95,6 +96,49 @@ async function chat(systemPrompt, userPrompt) {
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`);
   const data = await res.json();
   return data.message?.content || "";
+}
+
+async function chatClaude(systemPrompt, userPrompt) {
+  const res = await fetch(`${CLAUDE_PROXY_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer subscription",
+    },
+    body: JSON.stringify({
+      model: "claude-subscription",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      max_tokens: 2048,
+      temperature: 0.7,
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!res.ok) throw new Error(`Claude proxy error: ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+// Try Claude proxy first (better at structured JSON), fall back to Ollama
+async function chatSmart(systemPrompt, userPrompt) {
+  try {
+    const result = await chatClaude(systemPrompt, userPrompt);
+    if (result) {
+      console.log("[learner] Used Claude proxy");
+      return result;
+    }
+  } catch (err) {
+    console.log(`[learner] Claude proxy unavailable (${err.message}), falling back to Ollama`);
+  }
+  return chatOllama(systemPrompt, userPrompt);
+}
+
+// Simple chat — Ollama only (for non-structured tasks like REFLECT/LEARN)
+async function chat(systemPrompt, userPrompt) {
+  return chatOllama(systemPrompt, userPrompt);
 }
 
 // ── Step 1: REFLECT ─────────────────────────────────────────────────────────
@@ -221,10 +265,10 @@ async function install(learning) {
     return null;
   }
 
-  // Ask the brain if this can become a skill
+  // Ask the brain to design AND implement a skill (uses Claude for better JSON + code)
   let skillSpec = null;
   try {
-    const response = await chat(
+    const response = await chatSmart(
       "You are a tool designer. Design a simple tool/skill based on the research findings. The skill must be implementable as a single JavaScript module that exports { name, description, parameters, execute }.",
       `Gap: ${learning.gap.gap}\n\nFindings:\n${learning.findings}\n\nDesign a skill. Output JSON: {"name": "skill_name", "description": "what it does", "parameters": {"param1": {"type": "string", "description": "desc"}}, "canImplement": true/false, "reason": "why or why not"}\n\nOnly set canImplement to true if this can be a simple, read-only tool (no destructive operations).`
     );
@@ -243,16 +287,73 @@ async function install(learning) {
     return skillSpec;
   }
 
-  // Log the proposed skill — don't auto-create code yet
-  // Require Telegram approval before creating actual code
+  // Check if skill already exists in registry
+  let registry = { skills: [], lastUpdated: null };
+  try {
+    if (existsSync(REGISTRY_PATH)) {
+      registry = JSON.parse(readFileSync(REGISTRY_PATH, "utf-8"));
+    }
+  } catch { /* fresh registry */ }
+
+  if (registry.skills.some(s => s.name === skillSpec.name)) {
+    console.log(`[learner] Skill "${skillSpec.name}" already exists, skipping`);
+    return { ...skillSpec, status: "duplicate" };
+  }
+
+  // Generate the actual skill code
+  let skillCode = null;
+  try {
+    const paramEntries = Object.entries(skillSpec.parameters || {});
+    const paramDoc = paramEntries.length > 0
+      ? paramEntries.map(([n, def]) => `//   ${n}: ${def.type || "any"} — ${def.description || ""}`).join("\n")
+      : "//   (none)";
+
+    skillCode = await chatSmart(
+      `You are a JavaScript developer. Write a single ES module file that implements a tool/skill.
+The module MUST export: name (string), description (string), parameters (object), and execute (async function).
+The execute function receives a single object argument with the parameter values.
+The skill must be READ-ONLY — no file writes, no network mutations, no destructive operations.
+Use only Node.js built-in modules (fs, path, child_process, etc.) — no npm dependencies.
+Return ONLY the JavaScript code, no markdown fences, no explanation.`,
+      `Implement this skill:
+Name: ${skillSpec.name}
+Description: ${skillSpec.description}
+Parameters:
+${paramDoc}
+
+The module should look like:
+export const name = "${skillSpec.name}";
+export const description = "${skillSpec.description}";
+export const parameters = ${JSON.stringify(skillSpec.parameters || {})};
+export async function execute(args) {
+  // implementation
+  return "result string";
+}`
+    );
+  } catch (err) {
+    console.log(`[learner] Code generation failed: ${err.message}`);
+  }
+
+  if (!skillCode || skillCode.length < 50) {
+    console.log("[learner] Generated code too short or empty, logging as proposal only");
+    skillCode = null;
+  }
+
+  // Clean up code — strip markdown fences if model wrapped it
+  if (skillCode) {
+    skillCode = skillCode.replace(/^```(?:javascript|js|mjs)?\n?/m, "").replace(/\n?```\s*$/m, "").trim();
+  }
+
   const proposal = {
     ...skillSpec,
     proposedAt: new Date().toISOString(),
-    status: "proposed",
-    approved: false,
+    status: skillCode ? "installed" : "proposed",
+    approved: false, // sandboxed until approved
+    hasCode: !!skillCode,
   };
 
   if (!DRY_RUN) {
+    // Log to improvements
     const improvementEntry = {
       type: "skill_proposal",
       ...proposal,
@@ -263,9 +364,28 @@ async function install(learning) {
 
     const fs = await import("fs");
     fs.appendFileSync(IMPROVEMENTS_FILE, JSON.stringify(improvementEntry) + "\n");
+
+    // Write skill module and update registry
+    if (skillCode) {
+      const skillDir = resolve(SKILLS_DIR, skillSpec.name);
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(resolve(skillDir, "index.mjs"), skillCode);
+
+      registry.skills.push({
+        name: skillSpec.name,
+        description: skillSpec.description,
+        parameters: skillSpec.parameters,
+        approved: false,
+        installedAt: new Date().toISOString(),
+      });
+      registry.lastUpdated = new Date().toISOString();
+      writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2));
+
+      console.log(`[learner] Installed skill: ${skillSpec.name} (sandboxed until approved)`);
+    }
   }
 
-  console.log(`[learner] Proposed skill: ${skillSpec.name} — ${skillSpec.description}`);
+  console.log(`[learner] ${proposal.status === "installed" ? "Installed" : "Proposed"} skill: ${skillSpec.name} — ${skillSpec.description}`);
   return proposal;
 }
 
@@ -294,9 +414,9 @@ async function ideate() {
       "humanitarian — trafficking awareness, disaster response, accessibility, missing persons",
     ];
 
-    const response = await chat(
+    const response = await chatSmart(
       `You are a helpful AI that generates actionable ideas. Prioritize ideas that help those who can't help themselves — children, trafficking victims, disaster-affected communities. Be specific and practical.`,
-      `Based on what you know about the user:\n\n${ragContext || "(no context available)"}\n\nCategories (weighted by impact):\n${categories.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nGenerate ONE actionable idea. Output JSON: {"category": "personal|family|community|global|humanitarian", "title": "short title", "description": "2-3 sentence actionable description", "impact": "high|medium|low"}`
+      `Based on what you know about the user:\n\n${ragContext || "(no context available)"}\n\nCategories (weighted by impact):\n${categories.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nGenerate ONE actionable idea. Output ONLY valid JSON, no other text: {"category": "personal|family|community|global|humanitarian", "title": "short title", "description": "2-3 sentence actionable description", "impact": "high|medium|low"}`
     );
 
     try {
@@ -401,7 +521,8 @@ async function main() {
   }
 
   if (results.skill) {
-    summaryParts.push(`Proposed skill: ${results.skill.name || "none"}`);
+    const verb = results.skill.status === "installed" ? "Installed" : "Proposed";
+    summaryParts.push(`${verb} skill: ${results.skill.name || "none"}${results.skill.status === "installed" ? " (sandboxed)" : ""}`);
   }
 
   if (results.idea) {

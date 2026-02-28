@@ -230,6 +230,150 @@ function ingestDocs(db) {
   return chunks;
 }
 
+function ingestGitHistory(db) {
+  // Ingest recent git commit messages for project context
+  const { execSync } = require("child_process");
+
+  const state = db.prepare("SELECT last_file FROM ingest_state WHERE source = 'git'").get();
+  const lastHash = state?.last_file || "";
+
+  try {
+    const sinceArg = lastHash ? `${lastHash}..HEAD` : "--since='30 days ago'";
+    const log = execSync(
+      `git log ${sinceArg} --format='%H|||%ai|||%s|||%b' --no-merges 2>/dev/null`,
+      { cwd: PROJECT_DIR, encoding: "utf-8", timeout: 10000 }
+    ).trim();
+
+    if (!log) return [];
+
+    const chunks = [];
+    let latestHash = lastHash;
+
+    for (const line of log.split("\n").filter(Boolean)) {
+      const [hash, date, subject, body] = line.split("|||");
+      if (!hash || !subject) continue;
+
+      const text = `Commit: ${subject}${body ? "\n" + body.trim() : ""}`;
+      if (text.length > 30) {
+        chunks.push(...chunkText(text, {
+          source: "git",
+          source_file: hash.slice(0, 8),
+          date: date?.slice(0, 10),
+          tags: "git,commit",
+        }));
+      }
+
+      if (!latestHash) latestHash = hash;
+    }
+
+    // The first line is the newest commit
+    const newestHash = log.split("\n")[0]?.split("|||")[0];
+    if (newestHash) {
+      db.prepare("INSERT OR REPLACE INTO ingest_state (source, last_file, last_run) VALUES ('git', ?, datetime('now'))").run(newestHash);
+    }
+
+    return chunks;
+  } catch {
+    return [];
+  }
+}
+
+function ingestBrainData(db) {
+  // Ingest brain reflections, ideas, and improvements
+  const chunks = [];
+
+  // Daily reflections
+  const reflectionDir = resolve(PROJECT_DIR, "brain/reflection/daily");
+  if (existsSync(reflectionDir)) {
+    const state = db.prepare("SELECT last_file FROM ingest_state WHERE source = 'reflections'").get();
+    const lastFile = state?.last_file || "";
+
+    const files = readdirSync(reflectionDir)
+      .filter(f => f.endsWith(".json") && f > lastFile)
+      .sort();
+
+    let latestFile = lastFile;
+    for (const file of files) {
+      try {
+        const data = JSON.parse(readFileSync(join(reflectionDir, file), "utf-8"));
+        const parts = [`Reflection for ${data.date || file}`];
+        if (data.conversationCount) parts.push(`${data.conversationCount} conversations`);
+        if (data.gaps?.length > 0) parts.push(`Gaps: ${data.gaps.map(g => g.gap).join(", ")}`);
+        if (data.topTopics?.length > 0) parts.push(`Topics: ${data.topTopics.join(", ")}`);
+
+        const text = parts.join("\n");
+        chunks.push(...chunkText(text, {
+          source: "brain-reflection",
+          source_file: file,
+          date: data.date || file.replace(".json", ""),
+          tags: "brain,reflection",
+        }));
+        latestFile = file;
+      } catch { /* skip malformed */ }
+    }
+
+    if (latestFile > lastFile) {
+      db.prepare("INSERT OR REPLACE INTO ingest_state (source, last_file, last_run) VALUES ('reflections', ?, datetime('now'))").run(latestFile);
+    }
+  }
+
+  // Ideas
+  const ideasFile = resolve(PROJECT_DIR, "brain/ideas/ideas.jsonl");
+  if (existsSync(ideasFile)) {
+    const state = db.prepare("SELECT last_offset FROM ingest_state WHERE source = 'ideas'").get();
+    const lastOffset = state?.last_offset || 0;
+
+    const content = readFileSync(ideasFile, "utf-8");
+    const lines = content.split("\n").filter(Boolean);
+
+    for (let i = lastOffset; i < lines.length; i++) {
+      try {
+        const idea = JSON.parse(lines[i]);
+        const text = `Idea [${idea.category}]: ${idea.title}\n${idea.description}`;
+        chunks.push(...chunkText(text, {
+          source: "brain-ideas",
+          source_file: idea.id || `idea-${i}`,
+          date: idea.timestamp?.slice(0, 10),
+          tags: "brain,idea," + (idea.category || ""),
+        }));
+      } catch { /* skip */ }
+    }
+
+    if (lines.length > lastOffset) {
+      db.prepare("INSERT OR REPLACE INTO ingest_state (source, last_offset, last_run) VALUES ('ideas', ?, datetime('now'))").run(lines.length);
+    }
+  }
+
+  // Improvements / skill proposals
+  const improvementsFile = resolve(PROJECT_DIR, "brain/reflection/improvements.jsonl");
+  if (existsSync(improvementsFile)) {
+    const state = db.prepare("SELECT last_offset FROM ingest_state WHERE source = 'improvements'").get();
+    const lastOffset = state?.last_offset || 0;
+
+    const content = readFileSync(improvementsFile, "utf-8");
+    const lines = content.split("\n").filter(Boolean);
+
+    for (let i = lastOffset; i < lines.length; i++) {
+      try {
+        const entry = JSON.parse(lines[i]);
+        const text = `${entry.type}: ${entry.name || "unknown"}\n${entry.description || ""}\n${entry.reason || ""}`;
+        chunks.push(...chunkText(text, {
+          source: "brain-improvements",
+          source_file: entry.name || `improvement-${i}`,
+          date: entry.timestamp?.slice(0, 10),
+          tags: "brain,improvement," + (entry.type || ""),
+        }));
+      } catch { /* skip */ }
+    }
+
+    if (lines.length > lastOffset) {
+      db.prepare("INSERT OR REPLACE INTO ingest_state (source, last_offset, last_run) VALUES ('improvements', ?, datetime('now'))").run(lines.length);
+    }
+  }
+
+  return chunks;
+}
+
 // ── Main Pipeline ───────────────────────────────────────────────────────────
 
 async function main() {
@@ -241,6 +385,8 @@ async function main() {
     ...ingestTraces(db),
     ...ingestMemory(db),
     ...ingestDocs(db),
+    ...ingestGitHistory(db),
+    ...ingestBrainData(db),
   ];
 
   console.log(`[ingest] ${allChunks.length} chunks to embed`);
