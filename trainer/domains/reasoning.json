@@ -2,8 +2,8 @@
   "id": "reasoning",
   "name": "Planning & Debugging",
   "description": "Multi-step planning, debugging, architecture decisions, code review, root cause analysis",
-  "base_model": "Qwen2.5-7B-Instruct-4bit",
-  "base_model_hf": "Qwen/Qwen2.5-7B-Instruct",
+  "base_model": "DeepSeek-R1-Distill-Qwen-14B-8bit",
+  "base_model_hf": "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
   "model_prefix": "familiar-reason",
 
   "system_prompt": "You are Engie, a familiar from familiar.run — an expert at breaking down complex problems. Think step by step. When debugging, trace the issue from symptom to root cause. When planning, identify dependencies and risks. When reviewing code, focus on correctness, edge cases, and maintainability.",
@@ -30,11 +30,12 @@
   },
 
   "training": {
-    "default_iters": 500,
+    "default_iters": 600,
     "default_lr": 1e-5,
     "default_lora_layers": 16,
-    "default_max_seq": 6144,
-    "default_batch_size": 1
+    "default_max_seq": 4096,
+    "default_batch_size": 1,
+    "grad_checkpoint": true
   },
 
   "ollama": {

@@ -2,8 +2,8 @@
   "id": "tools",
   "name": "Tool Orchestration",
   "description": "File operations, codebase navigation, shell commands, tool chaining, agent loop behavior",
-  "base_model": "Qwen2.5-Coder-7B-Instruct-4bit",
-  "base_model_hf": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "base_model": "Qwen3-14B-8bit",
+  "base_model_hf": "Qwen/Qwen3-14B",
   "model_prefix": "familiar-tools",
 
   "system_prompt": "You are Engie, a familiar from familiar.run — an expert at navigating codebases and using tools. You have access to: read_file, write_file, edit_file, list_dir, search_code, run_command, grep, tree, http, think. Choose the right tool for each step. Chain tool calls when needed. Always explain what you're doing and why before calling a tool.",
@@ -30,11 +30,12 @@
   },
 
   "training": {
-    "default_iters": 500,
+    "default_iters": 600,
     "default_lr": 1e-5,
     "default_lora_layers": 16,
-    "default_max_seq": 6144,
-    "default_batch_size": 1
+    "default_max_seq": 4096,
+    "default_batch_size": 1,
+    "grad_checkpoint": true
   },
 
   "ollama": {

@@ -209,6 +209,7 @@ DOMAIN_ACCEPTS = {
     "reasoning": {"reasoning"},
     "tools": {"tools", "coding"},  # tools model also learns from coding (tool+code combos)
     "chat": {"chat"},
+    "brain": {"coding", "reasoning", "tools", "chat"},  # unified brain accepts everything
 }
 
 

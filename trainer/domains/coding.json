@@ -2,7 +2,8 @@
   "id": "coding",
   "name": "Software Engineering",
   "description": "Code generation, debugging, refactoring, and software architecture",
-  "base_model": "Qwen2.5-Coder-7B-Instruct-4bit",
+  "base_model": "Qwen3-14B-8bit",
+  "base_model_hf": "Qwen/Qwen3-14B",
   "model_prefix": "familiar-coder",
 
   "system_prompt": "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations.",
@@ -31,11 +32,12 @@
   },
 
   "training": {
-    "default_iters": 500,
+    "default_iters": 600,
     "default_lr": 1e-5,
     "default_lora_layers": 16,
     "default_max_seq": 4096,
-    "default_batch_size": 1
+    "default_batch_size": 1,
+    "grad_checkpoint": true
   },
 
   "ollama": {

@@ -218,9 +218,9 @@ def filter_pair(pair, domain_id="coding", max_chars=24000):
     if total_len > max_chars:
         return False
 
-    # Ground-truth pairs: always coding
+    # Ground-truth pairs: coding data (accepted by coding and brain domains)
     if is_ground_truth(pair):
-        if domain_id != "coding":
+        if domain_id != "coding" and domain_id != "brain":
             return False
         diff = pair.get("ground_truth_diff", "")
         if len(diff) < 100:
@@ -245,7 +245,20 @@ def filter_pair(pair, domain_id="coding", max_chars=24000):
         return False
 
     # Domain-specific quality thresholds
-    if domain_id == "coding":
+    if domain_id == "brain":
+        # Unified brain: use the threshold matching the pair's task type
+        task_type = pair.get("task_type", "coding")
+        if task_type == "coding" and len(claude) < 500:
+            return False
+        elif task_type == "coding" and not has_code_block(claude):
+            return False
+        elif task_type == "reasoning" and len(claude) < 200:
+            return False
+        elif task_type == "tools" and len(claude) < 100:
+            return False
+        elif task_type == "chat" and len(claude) < 20:
+            return False
+    elif domain_id == "coding":
         if len(claude) < 500:
             return False
         if not has_code_block(claude):

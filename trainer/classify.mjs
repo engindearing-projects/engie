@@ -74,6 +74,21 @@ const TOOLS_PATTERNS = [
   // CI/CD / deployment
   /\b(deploy|deployment|ci.?cd|pipeline|github\s+actions|workflow)\b/i,
   /\b(environment|staging|production|dev\s+server)\b/i,
+  // System / computer queries (require daemon tools)
+  /\b(battery|charging|power)\s*(level|status|percent|life)?\b/i,
+  /\b(screenshot|screen\s*shot|screen\s*cap|capture\s+(the\s+)?screen)\b/i,
+  /\b(windows?|apps?)\b.*\b(open|running|active)\b/i,
+  /\b(clipboard|copy|paste)\s*(content|text|value)?\b/i,
+  /\b(volume|mute|unmute|audio|sound)\s*(level)?\b/i,
+  /\b(brightness|display|screen)\s*(level|info|settings)?\b/i,
+  /\b(disk|storage)\s*(usage|space|free|available|left)?\b/i,
+  /\b(check|how\s+much)\b.*\b(disk|space|storage)\b/i,
+  /\b(cpu|memory|ram|process|processes)\s*(usage|info|list)?\b/i,
+  /\b(wifi|network|ip\s*address|connected|internet)\s*(status|info|name)?\b/i,
+  /\b(click|type|press|move\s+mouse|hotkey|key\s*press)\b/i,
+  /\b(open|launch|quit|close|kill)\s+(the\s+)?(app|application|program|safari|chrome|terminal|finder)\b/i,
+  /\b(ocr|read\s+(the\s+)?screen|text\s+on\s+screen)\b/i,
+  /\b(system\s+info|uptime|hostname|os\s+version)\b/i,
 ];
 
 const CHAT_PATTERNS = [

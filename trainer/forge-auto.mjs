@@ -154,6 +154,12 @@ async function runDomainPipeline(domain) {
     return { domain, status: "skipped", reason: `${trainCount} < ${minExamples} examples` };
   }
 
+  // Get pre-training score for comparison
+  let preScore = null;
+  try {
+    preScore = await getActiveScore();
+  } catch {}
+
   log(`  [${domain}] ${trainCount} examples — training...`);
   try {
     await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "train.py"), "--domain", domain]);
@@ -172,16 +178,36 @@ async function runDomainPipeline(domain) {
 
   // Evaluate (non-fatal)
   let evalStatus = "skipped";
+  let postScore = null;
   try {
     await runScript(VENV_PYTHON, [resolve(SCRIPTS_DIR, "evaluate.py"), "--domain", domain]);
     evalStatus = "pass";
+    try { postScore = await getActiveScore(); } catch {}
   } catch {
     evalStatus = "fail";
   }
 
+  // Auto-push to registry if score improved over previous best
+  let pushed = false;
+  if (postScore != null && (preScore == null || postScore > preScore)) {
+    log(`  [${domain}] Score improved (${preScore ?? "none"} → ${postScore}), pushing to registry...`);
+    // Use ollama push directly — model is already created locally
+    try {
+      const domainCfg = JSON.parse(readFileSync(resolve(TRAINER_DIR, "domains", `${domain}.json`), "utf8"));
+      const prefix = domainCfg.model_prefix || `familiar-${domain}`;
+      // Tag for registry namespace, then push
+      await runScript("ollama", ["cp", `${prefix}:latest`, `grantjwylie/${prefix}:latest`], { quiet: true });
+      await runScript("ollama", ["push", `grantjwylie/${prefix}:latest`], { quiet: true });
+      pushed = true;
+      log(`  [${domain}] Pushed grantjwylie/${prefix}:latest to registry`);
+    } catch (e) {
+      log(`  [${domain}] Registry push failed (non-fatal): ${e.message.slice(0, 80)}`);
+    }
+  }
+
   const durationMin = ((Date.now() - domainStart) / 60000).toFixed(1);
-  log(`  [${domain}] Complete — ${trainCount} examples, ${durationMin} min, eval: ${evalStatus}`);
-  return { domain, status: "trained", examples: trainCount, durationMin, evalStatus };
+  log(`  [${domain}] Complete — ${trainCount} examples, ${durationMin} min, eval: ${evalStatus}${pushed ? ", pushed" : ""}`);
+  return { domain, status: "trained", examples: trainCount, durationMin, evalStatus, pushed };
 }
 
 async function runPipeline() {

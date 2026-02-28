@@ -59,6 +59,8 @@ def main():
     parser.add_argument("--quant", default="Q4_K_M", help="GGUF quantization type (default: Q4_K_M)")
     parser.add_argument("--skip-gguf", action="store_true", help="Skip GGUF conversion, deploy from safetensors")
     parser.add_argument("--domain", default=None, help="Domain to deploy (default: active domain)")
+    parser.add_argument("--base-model", default=None, help="Override base model name (e.g. Qwen2.5-Coder-14B-Instruct-4bit)")
+    parser.add_argument("--push", action="store_true", help="Push to Ollama registry after create (grantjwylie/familiar-*)")
     args = parser.parse_args()
 
     # Load domain config
@@ -69,8 +71,8 @@ def main():
 
     domain_id = DOMAIN["id"]
 
-    # Set base model from domain config
-    base_model_name = DOMAIN.get("base_model", "Qwen2.5-Coder-7B-Instruct-4bit")
+    # Set base model from domain config — CLI override takes precedence
+    base_model_name = args.base_model or DOMAIN.get("base_model", "Qwen2.5-Coder-7B-Instruct-4bit")
     BASE_MODEL = TRAINER_DIR / "models" / "base" / base_model_name
 
     # Domain-specific adapter paths
@@ -138,7 +140,7 @@ def main():
         except subprocess.CalledProcessError as e:
             print(f"  GGUF conversion failed: {e}")
             print("  Falling back to safetensors import...")
-            _deploy_from_safetensors(version, fused_path)
+            _deploy_from_safetensors(version, fused_path, push=args.push)
             return
 
         # Step 3: Quantize to Q4_K_M
@@ -159,7 +161,7 @@ def main():
 
         # Step 4: Deploy to Ollama from GGUF
         print(f"\nStep 4: Creating Ollama model from GGUF...")
-        _deploy_from_gguf(version, gguf_quant)
+        _deploy_from_gguf(version, gguf_quant, push=args.push)
 
         # Clean up large intermediate files
         if gguf_f16.exists() and gguf_quant != gguf_f16:
@@ -180,10 +182,10 @@ def main():
             print(f"  llama-quantize not found at {LLAMA_QUANTIZE}")
             print("  Run: brew install llama.cpp")
         print("  Falling back to safetensors import (15GB model)...")
-        _deploy_from_safetensors(version, fused_path)
+        _deploy_from_safetensors(version, fused_path, push=args.push)
 
 
-def _deploy_from_gguf(version, gguf_path):
+def _deploy_from_gguf(version, gguf_path, push=False):
     """Deploy to Ollama from a GGUF file."""
     model_prefix = DOMAIN.get("model_prefix", "familiar-coder")
     system_prompt = DOMAIN.get("deploy_system_prompt", DOMAIN.get("system_prompt", "You are a helpful assistant."))
@@ -192,13 +194,35 @@ def _deploy_from_gguf(version, gguf_path):
     top_p = ollama_cfg.get("top_p", 0.9)
     num_ctx = ollama_cfg.get("num_ctx", 8192)
 
-    modelfile_content = f"""FROM {gguf_path}
+    # Qwen3 models need ChatML template with thinking disabled
+    base_name = DOMAIN.get("base_model", "").lower()
+    if "qwen3" in base_name:
+        template = '''"""{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{- range .Messages }}{{- if ne .Role "system" }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}{{ end }}<|im_start|>assistant
+<think>
 
+</think>
+"""'''
+        stop_tokens = 'PARAMETER stop <|im_end|>\nPARAMETER stop <|im_start|>'
+    else:
+        template = None
+        stop_tokens = ""
+
+    modelfile_content = f"""FROM {gguf_path}
+"""
+    if template:
+        modelfile_content += f"\nTEMPLATE {template}\n"
+
+    modelfile_content += f"""
 SYSTEM "{system_prompt}"
 
 PARAMETER temperature {temp}
 PARAMETER top_p {top_p}
 PARAMETER num_ctx {num_ctx}
+{stop_tokens}
 """
     modelfile_path = GGUF_DIR / f"Modelfile-{version}"
     modelfile_path.write_text(modelfile_content)
@@ -218,12 +242,16 @@ PARAMETER num_ctx {num_ctx}
         print(f"  Updated {model_prefix}:latest → {tag}")
 
         _update_db(version, tag, str(gguf_path))
+
+        if push:
+            _push_to_registry(model_prefix, version)
+
     except subprocess.CalledProcessError as e:
         print(f"  Ollama create failed: {e}")
         sys.exit(1)
 
 
-def _deploy_from_safetensors(version, fused_path):
+def _deploy_from_safetensors(version, fused_path, push=False):
     """Fallback: Deploy directly from safetensors (larger model, ~15GB)."""
     model_prefix = DOMAIN.get("model_prefix", "familiar-coder")
     system_prompt = DOMAIN.get("deploy_system_prompt", DOMAIN.get("system_prompt", "You are a helpful assistant."))
@@ -258,9 +286,33 @@ PARAMETER num_ctx {num_ctx}
         print(f"  Updated {model_prefix}:latest → {tag}")
 
         _update_db(version, tag, None)
+
+        if push:
+            _push_to_registry(model_prefix, version)
+
     except subprocess.CalledProcessError as e:
         print(f"  Ollama create failed: {e}")
         sys.exit(1)
+
+
+def _push_to_registry(model_prefix, version):
+    """Push model to Ollama registry (grantjwylie namespace)."""
+    registry_tag = f"grantjwylie/{model_prefix}:{version}"
+    print(f"\n  Pushing to registry: {registry_tag}...")
+    try:
+        # Tag for registry
+        local_tag = f"{model_prefix}:{version}"
+        subprocess.run(["ollama", "cp", local_tag, registry_tag], check=True)
+        subprocess.run(["ollama", "push", registry_tag], check=True)
+        print(f"  Pushed {registry_tag} to registry")
+
+        # Also push :latest
+        registry_latest = f"grantjwylie/{model_prefix}:latest"
+        subprocess.run(["ollama", "cp", f"{model_prefix}:latest", registry_latest], check=True)
+        subprocess.run(["ollama", "push", registry_latest], check=True)
+        print(f"  Pushed {registry_latest} to registry")
+    except subprocess.CalledProcessError as e:
+        print(f"  Registry push failed (non-fatal): {e}")
 
 
 def _update_db(version, ollama_tag, gguf_path):

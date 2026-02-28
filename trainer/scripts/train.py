@@ -76,6 +76,7 @@ def main():
     parser.add_argument("--max-seq-length", type=int, default=None, help="Max sequence length (default: from domain config)")
     parser.add_argument("--no-mask-prompt", action="store_true", help="Disable prompt masking (default: mask enabled)")
     parser.add_argument("--no-resume", action="store_true", help="Don't resume from previous adapter (use for rank changes)")
+    parser.add_argument("--base-model", type=str, default=None, help="Override base model name (e.g. Qwen2.5-Coder-14B-Instruct-4bit)")
     parser.add_argument("--version", type=int, default=None, help="Override version number")
     args = parser.parse_args()
 
@@ -95,8 +96,8 @@ def main():
     num_layers = args.num_layers or training_cfg.get("default_lora_layers", 16)
     max_seq = args.max_seq_length or training_cfg.get("default_max_seq", 4096)
 
-    # Domain-specific paths
-    base_model_name = DOMAIN.get("base_model", "Qwen2.5-Coder-7B-Instruct-4bit")
+    # Domain-specific paths — CLI override takes precedence
+    base_model_name = args.base_model or DOMAIN.get("base_model", "Qwen2.5-Coder-7B-Instruct-4bit")
     BASE_MODEL = TRAINER_DIR / "models" / "base" / base_model_name
 
     if domain_id == "coding":
@@ -187,10 +188,18 @@ def main():
         cmd.extend(["--resume-adapter-file", prev_adapter])
         print(f"  Resuming from: {prev_adapter}")
 
-    # Metal GPU memory guards
+    # Metal GPU memory guards — scale budget by model size
     metal_env = os.environ.copy()
     metal_env["MLX_METAL_PREALLOCATE"] = "0"
-    metal_env["MLX_METAL_MEMORY_BUDGET"] = str(6 * 1024 * 1024 * 1024)  # 6GB
+    base_name = base_model_name.lower()
+    if "14b" in base_name:
+        mem_budget_gb = 28  # 14B needs more headroom (36GB total)
+    elif "32b" in base_name:
+        mem_budget_gb = 32
+    else:
+        mem_budget_gb = 6   # 7B default
+    metal_env["MLX_METAL_MEMORY_BUDGET"] = str(mem_budget_gb * 1024 * 1024 * 1024)
+    print(f"  Metal budget:  {mem_budget_gb}GB")
 
     # Stop Ollama to free GPU VRAM — critical for Metal training
     ollama_was_running = False
