@@ -176,19 +176,24 @@ export function classifyPrompt(prompt, opts = {}) {
     scores.reasoning += 0.1;
   }
 
-  // Short prompts with no technical signals → chat
-  // Only boost chat when no other category matched anything
+  // No technical signals → bias toward chat (safe default)
   const hasAnySignal = raw.coding > 0 || raw.reasoning > 0 || raw.tools > 0;
-  if (prompt.length < 30 && !hasAnySignal) {
-    scores.chat += 0.5;
-  } else if (prompt.length < 60 && !hasAnySignal) {
-    scores.chat += 0.3;
+  if (!hasAnySignal) {
+    if (prompt.length < 30) {
+      scores.chat += 0.5;
+    } else if (prompt.length < 60) {
+      scores.chat += 0.3;
+    } else {
+      scores.chat += 0.15;
+    }
   }
 
   // ── Pick winner ──
+  // bestScore starts at 0 so categories need actual signal to win.
+  // If nothing scores above 0, bestType stays "chat" (safe fallback).
 
   let bestType = "chat";
-  let bestScore = -1;
+  let bestScore = 0;
 
   for (const [type, score] of Object.entries(scores)) {
     if (score > bestScore) {
