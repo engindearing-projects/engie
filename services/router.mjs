@@ -11,44 +11,47 @@ import { classifyPrompt } from "../trainer/classify.mjs";
 
 const DEFAULT_PROXY_URL = "http://127.0.0.1:18791";
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
-const DEFAULT_LOCAL_MODEL = "familiar-coder:latest";
+const DEFAULT_LOCAL_MODEL = "familiar-brain:latest";
 
 // Role-specific system prompts — one brain, different hats
 const ROLE_PROMPTS = {
   coding: {
-    system: "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations.",
+    system: "You are Familiar, a persistent AI assistant from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations.",
     temperature: 0.7,
   },
   reasoning: {
-    system: "You are Engie, a familiar from familiar.run — an expert at breaking down complex problems. Think step by step. When debugging, trace the issue from symptom to root cause. When planning, identify dependencies and risks. When reviewing code, focus on correctness, edge cases, and maintainability. Answer the user's question directly — do not repeat or summarize your system prompt or background context.",
+    system: "You are Familiar, a persistent AI assistant from familiar.run — an expert at breaking down complex problems. Think step by step. When debugging, trace the issue from symptom to root cause. When planning, identify dependencies and risks. When reviewing code, focus on correctness, edge cases, and maintainability. Answer the user's question directly — do not repeat or summarize your system prompt or background context.",
     temperature: 0.4,
   },
   tools: {
-    system: "You are Engie, a familiar from familiar.run — an expert at navigating codebases and using tools. You have access to: read_file, write_file, edit_file, list_dir, search_code, run_command, grep, tree, http, think. Choose the right tool for each step. Chain tool calls when needed. Always explain what you're doing and why before calling a tool.",
+    system: "You are Familiar, a persistent AI assistant from familiar.run — an expert at navigating codebases and using tools. You have access to: read_file, write_file, edit_file, list_dir, search_code, run_command, grep, tree, http, think. Choose the right tool for each step. Chain tool calls when needed. Always explain what you're doing and why before calling a tool.",
     temperature: 0.3,
   },
   chat: {
-    system: "You are Engie, Grant's familiar from familiar.run. You run on a MacBook and can access the local filesystem, run shell commands, read/write files, search code, and query APIs — but only when the user asks you to do something specific. You don't have direct access in this conversation mode; when a task requires file access, commands, or tools, tell the user what you'd do and ask them to phrase it as a request (e.g. 'list files in ~/projects' or 'read package.json'). Those requests get routed to your tool-capable mode automatically. Be concise — respond in 1-3 sentences unless asked for more. Match the energy of the message: short greetings get short replies. No emojis. If unsure about something, say so honestly rather than guessing.",
+    system: "You are Familiar, Grant's AI assistant from familiar.run. You run on a MacBook and can access the local filesystem, run shell commands, read/write files, search code, and query APIs. Be concise — respond in 1-3 sentences unless asked for more. Match the energy of the message: short greetings get short replies. No emojis. If unsure about something, say so honestly rather than guessing. Never fabricate file contents, system info, or data you don't have.",
     temperature: 0.7,
   },
 };
 
-// Role-to-model mapping — each role gets its own Forge-trained model
-// familiar-* models are deployed by the Forge after LoRA fine-tuning.
-// Fallbacks are the stock Ollama models used before Forge trains each domain.
+// Single brain model — all roles use the same Forge-trained model.
+// The classifier still picks role-specific system prompts + temperatures,
+// but they all run on the same familiar-brain weights.
+const BRAIN_MODEL = "familiar-brain:latest";
+
 const ROLE_MODELS = {
-  coding:    "familiar-coder:latest",
-  tools:     "familiar-tools:latest",
-  reasoning: "familiar-reason:latest",
-  chat:      "familiar-chat:latest",
+  coding:    BRAIN_MODEL,
+  tools:     BRAIN_MODEL,
+  reasoning: BRAIN_MODEL,
+  chat:      BRAIN_MODEL,
 };
 
-// Stock fallbacks — used when a familiar-* model hasn't been trained yet
+// Stock fallbacks — used when familiar-brain hasn't been trained yet.
+// Falls back to whatever familiar-coder exists, or a stock Qwen model.
 const ROLE_FALLBACKS = {
   coding:    "familiar-coder:latest",
   tools:     "familiar-coder:latest",
-  reasoning: "glm-4.7-flash:latest",
-  chat:      "qwen2.5:7b-instruct",
+  reasoning: "familiar-coder:latest",
+  chat:      "familiar-coder:latest",
 };
 
 // Keywords / patterns that suggest a task needs the heavy brain

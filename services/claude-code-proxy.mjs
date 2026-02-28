@@ -106,7 +106,7 @@ const activeJobs = new Map(); // jobId -> { process, startedAt, prompt }
 const router = new Router({
   proxyUrl: `http://127.0.0.1:${PORT}`,
   ollamaUrl: "http://localhost:11434",
-  localModel: "familiar-coder:latest",
+  localModel: "familiar-brain:latest",
 });
 
 // ── Session Tracking (multi-turn) ────────────────────────────────────────────

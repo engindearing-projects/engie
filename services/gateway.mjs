@@ -23,6 +23,8 @@ import {
 } from "./shared-invoke.mjs";
 import { Router } from "./router.mjs";
 import { runToolLoop } from "./tool-loop.mjs";
+import { warmDaemon, warmMcpServers } from "./tools.mjs";
+import { validateResponse } from "./response-validator.mjs";
 import {
   createSession as dbCreateSession,
   listSessions as dbListSessions,
@@ -68,6 +70,8 @@ const BIND = config.gateway?.bind || "lan";
 const ACCEPTED_CLIENT_IDS = new Set([
   "familiar-ui",
   "familiar-tray",
+  "familiar-terminal",
+  "familiar-telegram",
   "cozyterm-ui",
 ]);
 
@@ -106,7 +110,7 @@ const claudeLimiter = new Semaphore(parseInt(process.env.CLAUDE_MAX_CONCURRENT |
 const router = new Router({
   proxyUrl: `http://127.0.0.1:${process.env.CLAUDE_PROXY_PORT || 18791}`,
   ollamaUrl: "http://localhost:11434",
-  localModel: "familiar-coder:latest",
+  localModel: "familiar-brain:latest",
 });
 
 // ── Forge Collectors (lazy-loaded) ──────────────────────────────────────────
@@ -342,32 +346,38 @@ async function handleChatSend(ws, reqId, params) {
         ? `${systemPrompt}\n\nBelow is background reference about projects and repos. Use it to inform your answers but do not summarize or repeat it.\n\n${memoryCtx}`
         : systemPrompt;
 
-      // ── 5. Branch on role ──
+      // ── 5. Run tool loop for all roles (single brain model handles everything) ──
       const responseStart = Date.now();
-      if (role === "coding" || role === "tools") {
-        // Tool loop for familiar-coder
-        const loopResult = await runToolLoop({
-          prompt: message,
-          systemPrompt: fullSystemPrompt,
-          model,
-          temperature,
-          maxIterations: 10,
-          maxToolCalls: 25,
-          timeoutMs: 120_000,
-        });
+      let loopResult = null;
+      const maxIters = (role === "chat") ? 5 : 10;
+      loopResult = await runToolLoop({
+        prompt: message,
+        systemPrompt: fullSystemPrompt,
+        model,
+        temperature,
+        maxIterations: maxIters,
+        maxToolCalls: 25,
+        timeoutMs: 120_000,
+      });
 
-        responseText = loopResult.response || "(no response)";
-        console.log(`[chat] ollama done: ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, model=${model}`);
-      } else {
-        // Direct call for reasoning and chat models (no tool loop)
-        responseText = await callOllamaDirect({
-          prompt: message,
-          systemPrompt: fullSystemPrompt,
-          model,
-          temperature,
-        });
-        responseText = responseText || "(no response)";
-        console.log(`[chat] ollama direct done: role=${role} model=${model}`);
+      responseText = loopResult.response || "(no response)";
+      console.log(`[chat] ollama done: role=${role} ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, model=${model}`);
+
+      // Validate response quality before broadcasting
+      const validation = validateResponse({
+        text: responseText,
+        prompt: message,
+        role,
+        finishReason: loopResult?.finishReason || "complete",
+        toolCalls: loopResult?.toolCalls || [],
+      });
+
+      if (!validation.pass) {
+        console.warn(`[chat] response failed validation: ${validation.flags.join(", ")} (confidence: ${validation.confidence.toFixed(2)})`);
+        responseText = "I couldn't generate a reliable response. Please try rephrasing or say 'use claude' for the heavy brain.";
+      } else if (validation.confidence < 0.7) {
+        console.warn(`[chat] low confidence response: ${validation.flags.join(", ")} (${validation.confidence.toFixed(2)})`);
+        responseText = `[Low confidence] ${responseText}`;
       }
 
       // Fire Forge collector with actual response and model
@@ -383,7 +393,7 @@ async function handleChatSend(ws, reqId, params) {
         });
       }).catch(() => {});
 
-      broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
+      broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText, quality: { pass: validation.pass, confidence: validation.confidence, flags: validation.flags } } });
     }
 
     // Store assistant message
@@ -689,17 +699,28 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 // ── Startup Banner ──────────────────────────────────────────────────────────
 
 const bin = claudeBin();
-console.log(`Familiar Gateway v1.0.0 (Multi-Model Forge Training)`);
+console.log(`Familiar Gateway v1.1.0 (Single Brain Architecture)`);
 console.log(`  listening:    ${hostname}:${PORT}`);
 console.log(`  config:       ${configPath || "none"}`);
 console.log(`  sessions TTL: ${SESSION_TTL_MS / 60000} min`);
 console.log("");
-console.log("Model routing (familiar-* with stock fallbacks):");
-console.log("  coding → familiar-coder:latest / familiar-coder:latest");
-console.log("  tools  → familiar-tools:latest / familiar-coder:latest");
-console.log("  reason → familiar-reason:latest / glm-4.7-flash:latest");
-console.log("  chat   → familiar-chat:latest / qwen2.5:7b-instruct");
+console.log("Model routing (single brain architecture):");
+console.log("  all roles → familiar-brain:latest (fallback: familiar-coder:latest)");
 console.log(`  claude → explicit trigger only (${bin ? "available" : "NOT FOUND"})`);
 console.log("");
 console.log("Claude trigger phrases: ask claude, @claude, use claude, hey claude");
 console.log("");
+
+// Pre-warm the daemon connection so tool schemas are ready for first request
+warmDaemon().then(() => {
+  console.log("  daemon:  familiar-daemon connected");
+}).catch(() => {
+  console.log("  daemon:  familiar-daemon not available (will lazy-connect on first tool call)");
+});
+
+// Pre-warm external MCP servers (Jira, Slack, etc.)
+warmMcpServers().then(() => {
+  console.log("  mcp:     external servers connected");
+}).catch(() => {
+  console.log("  mcp:     external servers unavailable (will lazy-connect on first tool call)");
+});
