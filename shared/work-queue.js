@@ -11,7 +11,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { memoryDir } from "../cli/lib/paths.js";
+import { memoryDir } from "../apps/cli/lib/paths.js";
 
 let _db = null;
 

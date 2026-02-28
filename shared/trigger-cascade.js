@@ -15,8 +15,8 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
-import { getByType, search, getRecentAll } from "../cli/lib/memory-db.js";
-import { workspaceDir } from "../cli/lib/paths.js";
+import { getByType, search, getRecentAll } from "../apps/cli/lib/memory-db.js";
+import { workspaceDir } from "../apps/cli/lib/paths.js";
 
 // Forge DB is optional — daemon can run without training infra
 let forgeDb = null;

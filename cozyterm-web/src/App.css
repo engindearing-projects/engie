@@ -1,6 +1,0 @@
-/* App-level layout — keep minimal, most styling is in component modules */
-
-#root {
-  height: 100%;
-  width: 100%;
-}

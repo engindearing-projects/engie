@@ -6,7 +6,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CLI_LIB = resolve(__dirname, "../../cli/lib");
+const CLI_LIB = resolve(__dirname, "../../apps/cli/lib");
 
 function bunExec(script, args = []) {
   try {

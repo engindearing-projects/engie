@@ -71,10 +71,8 @@ config/*.local.md
 .env.local
 
 # Mobile
-engie-mobile/node_modules/
-engie-mobile/.expo/
-engie-mobile/ios/
-engie-mobile/android/
+apps/terminal/target/
+daemon/target/
 
 # MCP bridge runtime
 mcp-bridge/node_modules/
@@ -89,5 +87,5 @@ trainer/data/valid.jsonl
 trainer/db/
 trainer/tools/
 trainer/domains/.active
-engie-web/
+apps/web/
 config/media/inbound/
