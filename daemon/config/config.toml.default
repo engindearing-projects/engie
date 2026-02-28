@@ -1,0 +1,15 @@
+version = 1
+
+[identity]
+name = "Familiar"
+
+[daemon]
+log_level = "info"
+
+[tools]
+claude_code = false
+claude_desktop = false
+cursor = false
+windsurf = false
+vscode_continue = false
+opencode = false

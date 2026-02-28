@@ -1,0 +1,73 @@
+[package]
+name = "familiar-daemon"
+version = "0.1.0"
+edition = "2024"
+description = "Native system control daemon for familiar.run — MCP server over stdio"
+license = "MIT"
+
+[[bin]]
+name = "familiar-daemon"
+path = "src/main.rs"
+
+[features]
+default = ["system_info", "clipboard", "notifications", "file_ops"]
+system_info = []
+clipboard = []
+notifications = []
+screenshots = []
+window_mgmt = []
+app_control = []
+input_sim = []
+audio = []
+display = []
+file_search = []
+accessibility = []
+file_ops = []
+network = []
+browser = []
+defaults = []
+terminal = []
+ocr = []
+all = [
+    "system_info", "clipboard", "notifications", "screenshots",
+    "window_mgmt", "app_control", "input_sim", "audio",
+    "display", "file_search", "accessibility", "file_ops",
+    "network", "browser", "defaults", "terminal", "ocr"
+]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+base64 = "0.22"
+dirs = "6"
+
+# Cross-platform system info
+sysinfo = "0.33"
+
+# PNG encoding for screenshots
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSString", "NSArray", "NSDictionary", "NSData",
+    "NSProcessInfo", "NSFileManager",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSWorkspace", "NSRunningApplication", "NSPasteboard",
+    "NSImage", "NSScreen", "NSAppearance", "NSPasteboardItem",
+] }
+core-graphics = "0.24"
+core-foundation = "0.10"
+
+[dev-dependencies]
+assert_cmd = "2"
+tempfile = "3"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

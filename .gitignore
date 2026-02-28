@@ -89,3 +89,7 @@ trainer/tools/
 trainer/domains/.active
 apps/web/
 config/media/inbound/
+__pycache__/
+brain/reflection/
+daemon/target/
+apps/terminal/target/

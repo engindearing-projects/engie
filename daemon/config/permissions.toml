@@ -1,0 +1,56 @@
+# Familiar Daemon — Permission Configuration
+# Each capability must be explicitly allowed. Deny by default.
+# Per-tool overrides are optional (e.g. allow clipboard_read but not clipboard_write).
+
+version = 1
+
+[capabilities.system_info]
+allowed = true
+
+[capabilities.clipboard]
+allowed = true
+
+[capabilities.notifications]
+allowed = true
+
+[capabilities.screenshots]
+allowed = true
+
+[capabilities.window_mgmt]
+allowed = true
+
+[capabilities.app_control]
+allowed = true
+
+[capabilities.input_sim]
+allowed = true
+
+[capabilities.audio]
+allowed = true
+
+[capabilities.display]
+allowed = true
+
+[capabilities.file_search]
+allowed = true
+
+[capabilities.accessibility]
+allowed = true
+
+[capabilities.file_ops]
+allowed = true
+
+[capabilities.network]
+allowed = true
+
+[capabilities.browser]
+allowed = true
+
+[capabilities.defaults]
+allowed = true
+
+[capabilities.terminal]
+allowed = true
+
+[capabilities.ocr]
+allowed = true
