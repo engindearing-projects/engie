@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: cd apps/cli && bun install
+
+      - name: Build standalone binary (macOS)
+        run: |
+          cd apps/cli
+          bun build bin/familiar.mjs --compile --outfile dist/familiar-macos-arm64
+          bun build bin/familiar.mjs --compile --target=bun-darwin-x64 --outfile dist/familiar-macos-x64
+
+      - name: Package tarball
+        run: |
+          cd apps/cli
+          VERSION=${GITHUB_REF#refs/tags/v}
+          tar -czf dist/familiar-${VERSION}-macos-arm64.tar.gz -C dist familiar-macos-arm64
+          tar -czf dist/familiar-${VERSION}-macos-x64.tar.gz -C dist familiar-macos-x64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            apps/cli/dist/familiar-*-macos-*.tar.gz
+          generate_release_notes: true
+
+      - name: Publish to npm
+        run: |
+          cd apps/cli
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
+          npm publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Update Homebrew formula
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          ARM_URL="https://github.com/engindearing-projects/engie/releases/download/v${VERSION}/familiar-${VERSION}-macos-arm64.tar.gz"
+          ARM_SHA=$(shasum -a 256 apps/cli/dist/familiar-${VERSION}-macos-arm64.tar.gz | cut -d' ' -f1)
+          X64_URL="https://github.com/engindearing-projects/engie/releases/download/v${VERSION}/familiar-${VERSION}-macos-x64.tar.gz"
+          X64_SHA=$(shasum -a 256 apps/cli/dist/familiar-${VERSION}-macos-x64.tar.gz | cut -d' ' -f1)
+
+          cat > Formula/familiar.rb << EOF
+          class Familiar < Formula
+            desc "AI that lives in your terminal — local-first, always learning"
+            homepage "https://familiar.run"
+            version "${VERSION}"
+            license "MIT"
+
+            if Hardware::CPU.arm?
+              url "${ARM_URL}"
+              sha256 "${ARM_SHA}"
+            else
+              url "${X64_URL}"
+              sha256 "${X64_SHA}"
+            end
+
+            def install
+              bin.install Dir["familiar-*"].first => "familiar"
+            end
+
+            test do
+              assert_match "familiar", shell_output("#{bin}/familiar --version")
+            end
+          end
+          EOF

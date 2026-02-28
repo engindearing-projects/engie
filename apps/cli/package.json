@@ -1,19 +1,43 @@
 {
-  "name": "familiar-cli",
-  "version": "0.7.0",
+  "name": "familiar-run",
+  "version": "1.0.0",
   "type": "module",
   "description": "Get your familiar — AI that lives in your terminal",
-  "bin": {
-    "familiar": "./bin/familiar.mjs",
-    "engie": "./bin/familiar.mjs",
-    "cozy": "./bin/cozy.mjs"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/engindearing-projects/engie.git"
   },
+  "homepage": "https://familiar.run",
+  "keywords": [
+    "ai",
+    "terminal",
+    "cli",
+    "coding-assistant",
+    "local-ai",
+    "ollama"
+  ],
+  "bin": {
+    "familiar": "./bin/familiar.mjs"
+  },
+  "files": [
+    "bin/",
+    "commands/",
+    "lib/",
+    "src/",
+    "tui/",
+    "package.json",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "bun bin/familiar.mjs",
     "dev": "bun --watch bin/familiar.mjs"
   },
   "engines": {
     "bun": ">=1.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",

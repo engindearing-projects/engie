@@ -45,6 +45,17 @@ import { writeProfile } from "../lib/profile.js";
 
 const e = React.createElement;
 
+// ── Lite-mode detection ─────────────────────────────────────────────────────
+// When running from a standalone binary (no repo source), skip service/health
+// steps and show clone instructions instead.
+
+function detectLiteMode() {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  return !existsSync(resolve(repoRoot, "services", "gateway.mjs"));
+}
+
+const LITE_MODE = detectLiteMode();
+
 // ── Step definitions ────────────────────────────────────────────────────────
 
 const STEP_DEFS = [
@@ -526,7 +537,7 @@ export function WizardApp() {
     setTimeout(() => {
       try {
         // Auto-install mcp-bridge npm dependencies
-        const repoRoot = resolve(__dirname, "../..");
+        const repoRoot = resolve(__dirname, "../../..");
         const bridgeDir = resolve(repoRoot, "mcp-bridge");
         if (existsSync(resolve(bridgeDir, "package.json"))) {
           const npmBin = whichSync("npm") || "npm";
@@ -560,6 +571,12 @@ export function WizardApp() {
   }, [currentStepIdx, phase]);
 
   function runServices() {
+    if (LITE_MODE) {
+      skipStep("services", "binary-only install — clone repo for full stack");
+      advanceToNext();
+      return;
+    }
+
     updateStep("services", { status: "active", detail: "installing plists..." });
 
     setTimeout(() => {
@@ -605,6 +622,12 @@ export function WizardApp() {
   }
 
   function runHealthCheck() {
+    if (LITE_MODE) {
+      skipStep("health", "binary-only install — no services to check");
+      advanceToNext();
+      return;
+    }
+
     updateStep("health", { status: "active", detail: "waiting for services..." });
 
     let attempts = 0;
@@ -816,7 +839,14 @@ export function WizardApp() {
       ? e(Box, { flexDirection: "column", marginTop: 1, marginLeft: 2 },
           e(Text, null, ""),
           e(Text, { color: colors.green, bold: true }, "Setup complete!"),
-          e(Text, { color: colors.gray }, "Run `familiar` to get your familiar.")
+          e(Text, { color: colors.gray }, "Run `familiar` to get your familiar."),
+          LITE_MODE
+            ? e(Box, { flexDirection: "column", marginTop: 1 },
+                e(Text, { color: colors.cyan }, "For the full stack (gateway, tools, memory, training):"),
+                e(Text, { color: colors.gray }, "  git clone https://github.com/engindearing-projects/engie.git ~/familiar"),
+                e(Text, { color: colors.gray }, "  cd ~/familiar && ./setup.sh")
+              )
+            : null
         )
       : null
   );

@@ -87,7 +87,7 @@ export function generateGatewayConfig({ token }) {
         provider: "claude-proxy",
         model: "sonnet",
         systemPrompt:
-          "You are Engie, a familiar from familiar.run. You help with coding, debugging, research, and general tasks. You have access to local tools and integrations via MCP.",
+          "You are a familiar from familiar.run. You help with coding, debugging, research, and general tasks. You have access to local tools and integrations via MCP.",
         maxTokens: 4096,
         temperature: 0.3,
       },

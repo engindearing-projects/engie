@@ -1,108 +1,135 @@
-# CozyTerm
+# Familiar
 
-An AI assistant that lives in your terminal. It tracks your projects across Jira and GitHub, remembers what you've been working on, sends you morning briefs over Telegram, and handles coding tasks by routing them to either Claude or a local Ollama model depending on complexity.
+An AI that lives in your terminal — local-first, always learning.
 
-Built with Bun. Runs natively on macOS with Apple Silicon GPU acceleration for local inference. Custom-built gateway — no third-party agent framework.
+Familiar is a personal AI assistant that tracks your projects, remembers context across sessions, routes tasks between local and cloud models, and trains on your feedback over time. It runs natively on macOS with Apple Silicon GPU acceleration for local inference. Heavy tasks go through Claude Code using your existing subscription — no extra API spend.
 
-Heavy tasks (refactoring, multi-file edits, debugging) go through Claude Code using your existing Claude Pro/Max subscription — no extra API spend. Quick stuff (status checks, summaries, standups) runs locally on Ollama for free.
-
-<p align="center">
-  <img src="docs/tui.png" alt="CozyTerm TUI" width="700">
-</p>
-
-<p align="center">
-  <img src="docs/web-chat.png" alt="Web Chat" width="350">
-  <img src="docs/web-memory.png" alt="Memory Browser" width="350">
-</p>
+Each user gets their own familiar. During setup you name it, configure integrations, and decide what runs locally vs in the cloud. The platform handles routing, memory, training, and scheduling.
 
 ---
 
 ## Quick Start
 
+### Clone (recommended — full stack)
+
 ```bash
-# Install Bun if you don't have it
-brew install oven-sh/bun/bun
-
-# Clone and install
-git clone https://github.com/engindearing-projects/engie.git
-cd engie/cli && bun install
-
-# Run the setup wizard — it handles the rest
-bun run bin/cozy.mjs init
+git clone https://github.com/engindearing-projects/engie.git ~/familiar
+cd ~/familiar && ./setup.sh
 ```
 
-The wizard sets up the global `engie` command, installs Ollama, generates configs, installs MCP bridge dependencies, starts launchd services, and verifies everything connects.
+The setup script installs dependencies, links the `familiar` command globally, and launches the interactive setup wizard. The wizard handles Ollama, API keys, services, and integrations.
+
+### curl (binary only)
+
+```bash
+curl -fsSL https://familiar.run/install | bash
+```
+
+Installs a standalone binary. For the full service stack (gateway, memory, training), clone the repo instead.
+
+### Homebrew
+
+```bash
+brew install engindearing-projects/engie/familiar
+```
+
+### npm
+
+```bash
+npm install -g familiar-run
+```
 
 ---
 
-## How to Use It
+## What It Does
 
-### Terminal (TUI)
+**Smart routing** — Each message gets a complexity score. High-complexity tasks (code generation, refactoring, architecture) route to Claude Code. Low-complexity tasks (status checks, summaries, quick questions) run locally on Ollama. You don't have to think about it.
 
-```bash
-engie
+**Persistent memory** — Conversations are scanned for decisions, blockers, ticket references, preferences, and completions. Everything goes into a local SQLite database with full-text search. Context is surfaced automatically in the TUI banner, morning briefs, and injected into future conversations.
+
+**Local tools** — 69 built-in tools for file operations, search, HTTP requests, shell commands, and more. Runs in a sandboxed tool loop with full MCP support.
+
+**Training pipeline (Forge)** — Captures conversation pairs and trains local models on your feedback. Auto-training kicks in at 100 pairs. Ground-truth mining runs nightly. Models improve over time based on how you actually use them.
+
+**Autonomous learning** — Daily 5-step cycle: reflect on recent interactions, learn from patterns, install new skills, generate ideas, and ingest relevant knowledge. Skills are sandboxed until approved.
+
+**Scheduled briefs** — Morning and afternoon summaries pulled from Jira boards, GitHub activity, and memory. Delivered via Telegram or available in the TUI.
+
+**MCP bridge** — Exposes itself as an MCP server so other tools (including Claude Code) can call into it. Also connects to external MCP servers for Jira, Slack, and Figma.
+
+---
+
+## Architecture
+
+### Services
+
+Everything runs as launchd services and auto-starts on boot:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `com.familiar.gateway` | 18789 | WebSocket gateway — main hub for all interfaces |
+| `com.familiar.claude-proxy` | 18791 | Routes heavy tasks through the Claude CLI |
+| `com.familiar.ollama-proxy` | 11435 | Wraps local Ollama inference |
+| `com.familiar.activity-sync` | 18790 | Cross-platform activity ledger |
+| `com.familiar.tunnel` | — | Cloudflare quick tunnel for remote access |
+| `com.familiar.telegram-bridge` | — | Bidirectional Telegram bot integration |
+| `com.familiar.telegram-push` | — | Push notifications (every 30 min) |
+| `com.familiar.forge-auto` | — | Auto-trainer daemon (100-pair threshold) |
+| `com.familiar.forge-mine` | — | Ground-truth miner (daily 4 AM) |
+| `com.familiar.learner` | — | Autonomous learning cycle (daily 5 AM) |
+| `com.familiar.caffeinate` | — | Prevents macOS sleep |
+
+Ollama runs separately via Homebrew (`homebrew.mxcl.ollama` on port 11434).
+
+### Directory layout
+
 ```
-
-This opens the main interface. You get a chat window, a status bar showing service health, and a banner with context about what you've been working on. Press **Shift+Tab** to open the task panel — it shows your todos, active tool calls, and recent observations.
-
-### One-shot from the command line
-
-```bash
-engie "what's the status of PROJ-42?"
-engie "summarize yesterday's blockers"
+apps/cli/        Bun+Ink TUI (gateway client, npm-linked globally)
+apps/terminal/   Rust Ratatui TUI
+apps/tray/       Rust macOS tray icon
+apps/web/        Next.js 15 PWA
+daemon/          Rust MCP server (69 tools)
+services/        JS services (gateway, router, tools, telegram, proxies)
+brain/           Autonomous learning (RAG + learner + skills)
+trainer/         Forge ML pipeline
+mcp-bridge/      MCP bridge for Claude Code integration
+config/          Config files and .env
+shared/          Shared utilities
+cron/            Scheduled jobs
+memory/          Memory database and sessions
 ```
-
-Prints the answer and exits. Observations get captured automatically.
-
-### Coaching mode
-
-```bash
-engie --coach
-```
-
-Friendlier explanations with analogies and plain language. Toggle it inside the TUI with `/coach`.
-
-### Service management
-
-```bash
-engie status          # health check
-engie doctor          # diagnostics
-engie doctor --fix    # auto-repair common issues
-engie start / stop    # manage launchd services
-```
-
-### Memory
-
-Every conversation gets parsed for decisions, blockers, ticket references, and preferences. All of it goes into a local SQLite database with full-text search.
-
-```bash
-# Save something from the CLI
-engie observe task_update "Finished API integration" --project myapp --tag PROJ-42
-
-# Inside the TUI
-/memory PROJ-42          # search
-/memory                  # recent stuff
-/observe need to follow up on IAM permissions
-/todo add fix auth timeout on /login
-/todo done obs_a1b2c3d4
-```
-
-### Web dashboard
-
-A lightweight web UI for chatting with Engie and browsing memory from a browser. Connect it to the gateway and it works the same as the TUI — search memory, check service status, manage settings.
 
 ---
 
 ## Commands
 
+### Terminal (TUI)
+
+```bash
+familiar              # Open the main interface
+familiar "question"   # One-shot from the command line
+familiar --coach      # Coaching mode (friendlier explanations)
+```
+
+### Service management
+
+```bash
+familiar status          # Health check all services
+familiar doctor          # Run diagnostics
+familiar doctor --fix    # Auto-repair common issues
+familiar start / stop    # Manage launchd services
+```
+
+### In-TUI commands
+
 | Command | What it does |
 |---------|-------------|
 | `/memory [query]` | Search memory or show recent |
 | `/observe <text>` | Save a note to memory |
-| `/todo [add\|done]` | Manage todos (Shift+Tab to see them) |
+| `/todo [add\|done]` | Manage todos (Shift+Tab to see panel) |
 | `/status` | Service health |
 | `/coach` | Toggle coaching mode |
-| `/explain <topic>` | Friendly explanation of something |
+| `/explain <topic>` | Friendly explanation |
 | `/suggest` | Get next-step suggestions |
 | `/forge [cmd]` | Training pipeline controls |
 | `/clear` | Clear chat |
@@ -110,83 +137,33 @@ A lightweight web UI for chatting with Engie and browsing memory from a browser.
 
 ---
 
-## How It Works
-
-### Smart Router
-
-Each message gets a complexity score (0-1). High-complexity tasks (code generation, refactoring, architecture) go to Claude Code via your subscription. Low-complexity tasks (status checks, summaries, quick questions) run locally on Ollama. You don't have to think about it — the router picks automatically.
-
-### Memory System
-
-Conversations are scanned for patterns:
-- **Ticket references** — `PROJ-42`, `OPS-18`
-- **Decisions** — "decided to", "going with"
-- **Blockers** — "blocked by", "waiting on"
-- **Preferences** — "always use", "prefer"
-- **Completions** — "merged", "deployed", "done with"
-
-Everything lands in `~/.cozyterm/memory/cozyterm.db` and gets surfaced in the TUI banner, cron briefs, and injected as context into conversations.
-
-### Automated Briefs
-
-Two cron jobs run on weekdays:
-- **8:00 AM PT** — morning brief. Checks Jira boards, GitHub activity, and recent memory. Sends a summary to Telegram.
-- **2:00 PM PT** — afternoon follow-up. Picks up Jira changes since morning and logs them.
-
-### MCP Bridge
-
-Engie exposes itself as an MCP server, so other tools (including Claude Code) can call into it:
-
-`engie_chat`, `engie_observe`, `engie_claude`, `engie_route`, `engie_status`, `engie_system_status`, `engie_history`, `engie_sessions`, `engie_config`, `engie_raw`
-
-Also connects to external MCP servers for **Jira**, **Slack**, and **Figma**.
-
----
-
-## Services
-
-Everything runs as launchd services and auto-starts on boot:
-
-| Service | Port | What it does |
-|---------|------|-------------|
-| Gateway | 18789 | Custom WebSocket API |
-| Claude Code Proxy | 18791 | Routes heavy tasks through `claude` CLI |
-| Activity Sync | 18790 | Cross-platform activity ledger |
-| Ollama | 11434 | Local LLM on Metal GPU |
-
----
-
 ## Configuration
 
-Config lives in `~/.cozyterm/`. Copy the example config to get started:
+All user data lives in `~/.familiar/`:
 
-```bash
-cp config/gateway.json.example ~/.cozyterm/config/gateway.json
-```
-
-Fill in your Telegram bot token, gateway auth token, and optionally Slack credentials.
-
-Key files:
-
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `~/.cozyterm/config/gateway.json` | Gateway config |
-| `~/.cozyterm/config/.env` | API keys (never committed) |
-| `~/.cozyterm/profile/user.json` | Your name, role, org |
-| `~/.cozyterm/memory/cozyterm.db` | Memory database |
-| `~/.cozyterm/cron/jobs.json` | Scheduled jobs |
+| `~/.familiar/config/familiar.json` | Main config (gateway, providers, agents) |
+| `~/.familiar/config/.env` | API keys and tokens (never committed) |
+| `~/.familiar/config/mcp-tools.json` | MCP server definitions |
+| `~/.familiar/profile/user.json` | Your name, role, org |
+| `~/.familiar/memory/familiar.db` | Memory database |
+| `~/.familiar/logs/` | Service logs |
+| `~/.familiar/cron/jobs.json` | Scheduled jobs |
 
-Override the home directory with `COZYTERM_HOME` env var.
+During `familiar init`, you name your familiar and configure it to your preferences. The config directory can be overridden with the `FAMILIAR_HOME` environment variable.
 
 ---
 
-## Guardrails
+## Development
 
-- Won't push to main/master/prod without approval
-- Won't deploy to production without approval
-- Won't touch .env, terraform, or CI configs without approval
-- Destructive commands are blocked by pre-execution hooks
-- Max 5 PRs per day unless you ask for more
+```bash
+git clone https://github.com/engindearing-projects/engie.git ~/familiar
+cd ~/familiar/apps/cli && bun install
+bun run dev                # Watch mode
+```
+
+Service scripts live in `services/`. The gateway entry point is `services/gateway.mjs`. The install script for launchd services is `services/install-services.sh`.
 
 ---
 
@@ -194,14 +171,14 @@ Override the home directory with `COZYTERM_HOME` env var.
 
 | | |
 |---|---|
-| **Runtime** | Bun (CLI), Node (MCP bridge) |
+| **Runtime** | Bun (CLI, services), Node (MCP bridge) |
 | **TUI** | Ink 5 + React 18 |
 | **Gateway** | Custom WebSocket server |
 | **Local LLM** | Ollama (Metal GPU) |
 | **Heavy tasks** | Claude Code CLI (uses your subscription) |
 | **Memory** | SQLite + FTS5 |
-| **Web** | Vite + React + TypeScript |
-| **Mobile** | React Native / Expo |
+| **Training** | Forge pipeline (LoRA fine-tuning) |
+| **Web** | Next.js 15 |
 | **Messaging** | Telegram Bot API |
 
 ---
