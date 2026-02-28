@@ -346,22 +346,35 @@ async function handleChatSend(ws, reqId, params) {
         ? `${systemPrompt}\n\nBelow is background reference about projects and repos. Use it to inform your answers but do not summarize or repeat it.\n\n${memoryCtx}`
         : systemPrompt;
 
-      // ── 5. Run tool loop for all roles (single brain model handles everything) ──
+      // ── 5. Branch on role ──
       const responseStart = Date.now();
       let loopResult = null;
-      const maxIters = (role === "chat") ? 5 : 10;
-      loopResult = await runToolLoop({
-        prompt: message,
-        systemPrompt: fullSystemPrompt,
-        model,
-        temperature,
-        maxIterations: maxIters,
-        maxToolCalls: 25,
-        timeoutMs: 120_000,
-      });
 
-      responseText = loopResult.response || "(no response)";
-      console.log(`[chat] ollama done: role=${role} ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, model=${model}`);
+      if (role === "coding" || role === "tools") {
+        // Tool loop for coding and tools — model gets tool schemas and can call them
+        loopResult = await runToolLoop({
+          prompt: message,
+          systemPrompt: fullSystemPrompt,
+          model,
+          temperature,
+          maxIterations: 10,
+          maxToolCalls: 25,
+          timeoutMs: 120_000,
+        });
+
+        responseText = loopResult.response || "(no response)";
+        console.log(`[chat] ollama tool-loop done: role=${role} ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, model=${model}`);
+      } else {
+        // Direct call for chat and reasoning — no tool loop, no nudging
+        responseText = await callOllamaDirect({
+          prompt: message,
+          systemPrompt: fullSystemPrompt,
+          model,
+          temperature,
+        });
+        responseText = responseText || "(no response)";
+        console.log(`[chat] ollama direct done: role=${role} model=${model}`);
+      }
 
       // Validate response quality before broadcasting
       const validation = validateResponse({
@@ -704,8 +717,9 @@ console.log(`  listening:    ${hostname}:${PORT}`);
 console.log(`  config:       ${configPath || "none"}`);
 console.log(`  sessions TTL: ${SESSION_TTL_MS / 60000} min`);
 console.log("");
-console.log("Model routing (single brain architecture):");
-console.log("  all roles → familiar-brain:latest (fallback: familiar-coder:latest)");
+console.log("Model routing (single brain, role-based dispatch):");
+console.log("  coding/tools → familiar-brain:latest (tool loop)");
+console.log("  chat/reason  → familiar-brain:latest (direct)");
 console.log(`  claude → explicit trigger only (${bin ? "available" : "NOT FOUND"})`);
 console.log("");
 console.log("Claude trigger phrases: ask claude, @claude, use claude, hey claude");
