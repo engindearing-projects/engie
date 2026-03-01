@@ -1,0 +1,72 @@
+{
+  "name": "researcher",
+  "version": "1.0.0",
+  "description": "Autonomous deep research — studies a topic across multiple nights, builds knowledge incrementally, evaluates sources with CRAAP criteria",
+  "author": "familiar",
+
+  "schedule": {
+    "cron": "0 3 * * *",
+    "tz": "America/Los_Angeles",
+    "runOnStart": false,
+    "maxDuration": 3600
+  },
+
+  "tools": ["bash", "read_file", "grep"],
+
+  "phases": [
+    {
+      "name": "load-context",
+      "prompt": "Read the research progress file at ~/engie/brain/ideas/openfang-integration.jsonl. Read the research doc at ~/engie/memory/openfang-research.md. Identify what has been completed so far and what the next priority is. If this is the first run, start from Priority 1: Hands manifest system.",
+      "timeout": 60,
+      "onFail": "skip"
+    },
+    {
+      "name": "study",
+      "prompt": "Study the next priority topic. Explore OpenFang at ~/.openfang/bin/openfang — run --help on relevant subcommands. Read Familiar's current implementation of the equivalent feature. Identify the specific gap and what needs to be built.",
+      "timeout": 300,
+      "onFail": "abort"
+    },
+    {
+      "name": "evaluate",
+      "prompt": "Apply CRAAP evaluation to your findings: Currency (is this still relevant?), Relevance (does it apply to Familiar?), Authority (is the source reliable?), Accuracy (can we verify this?), Purpose (does it serve our goals?). Score each 1-5 and note the overall assessment.",
+      "timeout": 120,
+      "onFail": "skip"
+    },
+    {
+      "name": "synthesize",
+      "prompt": "Write a concrete implementation plan for the next capability to add. Be specific: which files to create/modify, what the code should do, how to test it. This should be actionable enough for the next nightly build phase.",
+      "timeout": 180,
+      "onFail": "skip"
+    },
+    {
+      "name": "report",
+      "prompt": "Append a progress entry to ~/engie/brain/ideas/openfang-integration.jsonl as a JSON line: {\"date\": \"YYYY-MM-DD\", \"phase\": \"study|build|test\", \"topic\": \"what was studied\", \"findings\": \"key insights\", \"next\": \"what to do next iteration\"}. Summarize what was accomplished for the Telegram notification.",
+      "timeout": 30,
+      "onFail": "skip"
+    }
+  ],
+
+  "env": {},
+
+  "metrics": {
+    "topics_studied": { "type": "counter", "description": "Research topics completed" },
+    "capabilities_built": { "type": "counter", "description": "New capabilities implemented" },
+    "craap_score": { "type": "gauge", "description": "Average CRAAP evaluation score" },
+    "run_duration": { "type": "gauge", "description": "Seconds per research session" }
+  },
+
+  "guardrails": {
+    "readOnly": false,
+    "networkAccess": true,
+    "maxConcurrent": 1,
+    "approvalRequired": false
+  },
+
+  "state": {
+    "lastCheckpoint": null,
+    "custom": {
+      "currentTopic": "openfang-hands-system",
+      "completedTopics": []
+    }
+  }
+}

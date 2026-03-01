@@ -1,0 +1,87 @@
+{
+  "name": "forge-trainer",
+  "version": "1.0.0",
+  "description": "Nightly model training — prepares data, trains familiar-brain, benchmarks, deploys to Ollama",
+  "author": "familiar",
+
+  "schedule": {
+    "cron": "0 2 * * *",
+    "tz": "America/Los_Angeles",
+    "runOnStart": false,
+    "maxDuration": 10800
+  },
+
+  "tools": ["bash", "read_file"],
+
+  "phases": [
+    {
+      "name": "check-data",
+      "prompt": "Check forge DB for unused training pairs. Run: bun -e 'import { getForgeStats } from \"/Users/grantjwylie/engie/trainer/forge-db.js\"; console.log(JSON.stringify(getForgeStats()));'. If unusedPairs < 50, report 'Not enough data' and stop. Otherwise proceed.",
+      "timeout": 30,
+      "onFail": "abort"
+    },
+    {
+      "name": "unload-models",
+      "prompt": "Free VRAM by unloading all Ollama models: curl -s http://localhost:11434/api/generate -d '{\"model\":\"familiar-brain:latest\",\"keep_alive\":0}' and same for familiar-coder:latest. Wait 5 seconds for memory to free.",
+      "timeout": 30,
+      "onFail": "skip"
+    },
+    {
+      "name": "prepare",
+      "prompt": "Prepare training data: cd ~/engie/trainer && .venv/bin/python scripts/prepare-data.py --domain brain. Report the number of training and validation examples.",
+      "timeout": 300,
+      "onFail": "abort"
+    },
+    {
+      "name": "train",
+      "prompt": "Run training: cd ~/engie/trainer && .venv/bin/python scripts/train.py --domain brain. Report final train loss and iteration count.",
+      "timeout": 7200,
+      "onFail": "abort"
+    },
+    {
+      "name": "evaluate",
+      "prompt": "Run benchmark: cd ~/engie/trainer && .venv/bin/python scripts/evaluate.py --domain brain. Report overall score and category breakdown.",
+      "timeout": 1800,
+      "onFail": "skip"
+    },
+    {
+      "name": "deploy",
+      "prompt": "Fuse and deploy: cd ~/engie/trainer && .venv/bin/python scripts/fuse-and-deploy.py --domain brain. Verify the new model is available in Ollama with: curl -s http://localhost:11434/api/tags | grep familiar-brain.",
+      "timeout": 600,
+      "onFail": "abort"
+    },
+    {
+      "name": "self-iterate",
+      "prompt": "Run self-iteration benchmark: bun ~/engie/trainer/self-iterate.mjs --model familiar-brain:latest. This generates new training traces from the freshly trained model.",
+      "timeout": 1800,
+      "onFail": "skip"
+    },
+    {
+      "name": "report",
+      "prompt": "Summarize training results: version, train loss, examples used, benchmark score vs previous, model deployed. Format for Telegram notification.",
+      "timeout": 30,
+      "onFail": "skip"
+    }
+  ],
+
+  "env": {},
+
+  "metrics": {
+    "train_loss": { "type": "gauge", "description": "Final training loss" },
+    "benchmark_score": { "type": "gauge", "description": "Overall benchmark score" },
+    "train_examples": { "type": "gauge", "description": "Training examples used" },
+    "run_duration": { "type": "gauge", "description": "Total training duration in seconds" }
+  },
+
+  "guardrails": {
+    "readOnly": false,
+    "networkAccess": true,
+    "maxConcurrent": 1,
+    "approvalRequired": false
+  },
+
+  "state": {
+    "lastCheckpoint": null,
+    "custom": {}
+  }
+}

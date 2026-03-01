@@ -718,6 +718,87 @@ async function handleChatSend(ws, reqId, params) {
   }
 }
 
+// ── Hands (Autonomous Capability Packages) ────────────────────────────────
+
+let _handRegistry = null;
+
+async function getHandRegistry() {
+  if (_handRegistry) return _handRegistry;
+  try {
+    const { HandRegistry } = await import("../brain/hands/registry.mjs");
+    _handRegistry = new HandRegistry();
+    _handRegistry.load();
+    return _handRegistry;
+  } catch (err) {
+    console.error("[hands] Failed to load registry:", err.message);
+    return null;
+  }
+}
+
+function handleHandList(ws, id) {
+  getHandRegistry().then(reg => {
+    if (!reg) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Hands system unavailable" } });
+    const hands = reg.list();
+    sendTo(ws, { type: "res", id, ok: true, payload: { hands } });
+  });
+}
+
+function handleHandStatus(ws, id, params) {
+  getHandRegistry().then(reg => {
+    if (!reg) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Hands system unavailable" } });
+    const metrics = reg.getMetrics(params.name);
+    if (!metrics) return sendTo(ws, { type: "res", id, ok: false, error: { message: `Hand "${params.name}" not found` } });
+    sendTo(ws, { type: "res", id, ok: true, payload: metrics });
+  });
+}
+
+function handleHandLifecycle(ws, id, params, action) {
+  getHandRegistry().then(reg => {
+    if (!reg) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Hands system unavailable" } });
+    const result = reg[action](params.name);
+    if (result.ok) {
+      sendTo(ws, { type: "res", id, ok: true, payload: { action, name: params.name } });
+    } else {
+      sendTo(ws, { type: "res", id, ok: false, error: { message: result.error } });
+    }
+  });
+}
+
+function handleHandRun(ws, id, params) {
+  getHandRegistry().then(async reg => {
+    if (!reg) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Hands system unavailable" } });
+    const hand = reg.get(params.name);
+    if (!hand) return sendTo(ws, { type: "res", id, ok: false, error: { message: `Hand "${params.name}" not found` } });
+
+    // Auto-activate if inactive
+    if (hand.status === "inactive") reg.activate(params.name);
+
+    // Acknowledge the request immediately — hand runs async
+    sendTo(ws, { type: "res", id, ok: true, payload: { started: true, name: params.name } });
+
+    // Run in background
+    try {
+      const { runHand } = await import("../brain/hands/runner.mjs");
+      const result = await runHand(reg, params.name, { notify: true });
+      broadcast("hand.complete", { name: params.name, ok: result.ok, duration: result.duration });
+    } catch (err) {
+      broadcast("hand.error", { name: params.name, error: err.message });
+    }
+  });
+}
+
+function handleHandMetrics(ws, id) {
+  getHandRegistry().then(reg => {
+    if (!reg) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Hands system unavailable" } });
+    const hands = reg.list();
+    const metrics = hands.map(h => ({
+      ...reg.getMetrics(h.name),
+      schedule: h.schedule,
+    }));
+    sendTo(ws, { type: "res", id, ok: true, payload: { hands: metrics } });
+  });
+}
+
 // ── Request Dispatch ────────────────────────────────────────────────────────
 
 function handleRequest(ws, msg) {
@@ -864,6 +945,47 @@ function handleRequest(ws, msg) {
 
     case "claude.capture": {
       handleClaudeCapture(ws, id, params);
+      return;
+    }
+
+    // ── Hands (Autonomous Capability Packages) ──
+    case "hand.list": {
+      handleHandList(ws, id);
+      return;
+    }
+
+    case "hand.status": {
+      handleHandStatus(ws, id, params);
+      return;
+    }
+
+    case "hand.activate": {
+      handleHandLifecycle(ws, id, params, "activate");
+      return;
+    }
+
+    case "hand.pause": {
+      handleHandLifecycle(ws, id, params, "pause");
+      return;
+    }
+
+    case "hand.resume": {
+      handleHandLifecycle(ws, id, params, "resume");
+      return;
+    }
+
+    case "hand.deactivate": {
+      handleHandLifecycle(ws, id, params, "deactivate");
+      return;
+    }
+
+    case "hand.run": {
+      handleHandRun(ws, id, params);
+      return;
+    }
+
+    case "hand.metrics": {
+      handleHandMetrics(ws, id);
       return;
     }
 

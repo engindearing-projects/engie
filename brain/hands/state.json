@@ -1,0 +1,47 @@
+{
+  "forge-miner": {
+    "status": "active",
+    "lastRun": null,
+    "lastDuration": null,
+    "lastError": null,
+    "runCount": 0,
+    "metrics": {},
+    "checkpoint": null,
+    "activatedAt": "2026-03-01T17:26:19.687Z"
+  },
+  "forge-trainer": {
+    "status": "active",
+    "lastRun": null,
+    "lastDuration": null,
+    "lastError": null,
+    "runCount": 0,
+    "metrics": {},
+    "checkpoint": null,
+    "activatedAt": "2026-03-01T17:26:19.687Z"
+  },
+  "learner": {
+    "status": "active",
+    "lastRun": null,
+    "lastDuration": null,
+    "lastError": null,
+    "runCount": 0,
+    "metrics": {},
+    "checkpoint": null,
+    "activatedAt": "2026-03-01T17:26:19.687Z"
+  },
+  "researcher": {
+    "status": "active",
+    "lastRun": "2026-03-01T17:39:23.700Z",
+    "lastDuration": 780638,
+    "lastError": null,
+    "runCount": 2,
+    "metrics": {
+      "run_duration": 780.638
+    },
+    "checkpoint": {
+      "lastPhase": "report",
+      "at": "2026-03-01T17:39:23.700Z"
+    },
+    "activatedAt": null
+  }
+}

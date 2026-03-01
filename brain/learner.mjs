@@ -22,7 +22,7 @@ const IMPROVEMENTS_FILE = resolve(BRAIN_DIR, "reflection/improvements.jsonl");
 
 const OLLAMA_URL = "http://localhost:11434";
 const CLAUDE_PROXY_URL = "http://localhost:18791/v1";
-const BRAIN_MODEL = "familiar-coder:latest";
+const BRAIN_MODEL = "familiar-brain:latest";
 const DRY_RUN = process.argv.includes("--dry-run");
 
 // Ensure dirs exist

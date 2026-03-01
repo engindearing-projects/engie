@@ -967,6 +967,101 @@ async function handleClaudeStatus(chatId) {
   }
 }
 
+// ── Hands Command Handlers ──────────────────────────────────────────────────
+
+let _tgHandRegistry = null;
+
+async function getTgHandRegistry() {
+  if (_tgHandRegistry) return _tgHandRegistry;
+  try {
+    const { HandRegistry } = await import("../brain/hands/registry.mjs");
+    _tgHandRegistry = new HandRegistry();
+    _tgHandRegistry.load();
+    return _tgHandRegistry;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function handleHandsList(chatId) {
+  try {
+    const reg = await getTgHandRegistry();
+    if (!reg) { await tgSend(chatId, "Hands system unavailable."); return; }
+    reg.load(); // refresh state
+    const hands = reg.list();
+    if (hands.length === 0) {
+      await tgSend(chatId, "No hands installed.");
+      return;
+    }
+    const icons = { active: "ON", inactive: "OFF", paused: "PAUSED", running: "RUN", error: "ERR" };
+    const lines = hands.map(h => {
+      const icon = icons[h.status] || h.status;
+      const lastStr = h.lastRun ? new Date(h.lastRun).toLocaleString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "never";
+      return `[${icon}] ${h.name}\n  ${h.description}\n  Schedule: ${h.schedule} | Runs: ${h.runCount} | Last: ${lastStr}`;
+    });
+    await tgSend(chatId, `Hands:\n\n${lines.join("\n\n")}`);
+  } catch (err) {
+    await tgSend(chatId, `Error: ${err.message}`);
+  }
+}
+
+async function handleHandCommand(chatId, action, name) {
+  try {
+    const reg = await getTgHandRegistry();
+    if (!reg) { await tgSend(chatId, "Hands system unavailable."); return; }
+    reg.load(); // refresh state
+
+    if (action === "status") {
+      const metrics = reg.getMetrics(name);
+      if (!metrics) { await tgSend(chatId, `Hand "${name}" not found.`); return; }
+      const lines = [
+        `Hand: ${metrics.name}`,
+        `Status: ${metrics.status}`,
+        `Runs: ${metrics.runCount}`,
+        `Last: ${metrics.lastRun || "never"}`,
+        `Duration: ${metrics.lastDuration ? `${(metrics.lastDuration / 1000).toFixed(1)}s` : "n/a"}`,
+      ];
+      if (metrics.lastError) lines.push(`Error: ${metrics.lastError}`);
+      if (Object.keys(metrics.metrics).length > 0) {
+        lines.push("\nMetrics:");
+        for (const [key, value] of Object.entries(metrics.metrics)) {
+          lines.push(`  ${key}: ${value}`);
+        }
+      }
+      await tgSend(chatId, lines.join("\n"));
+      return;
+    }
+
+    if (action === "run") {
+      const hand = reg.get(name);
+      if (!hand) { await tgSend(chatId, `Hand "${name}" not found.`); return; }
+      if (hand.status === "inactive") reg.activate(name);
+      await tgSend(chatId, `Running "${name}"...`);
+
+      // Run async — results come via Telegram notification from the runner
+      const { runHand } = await import("../brain/hands/runner.mjs");
+      runHand(reg, name, { notify: true }).catch(err => {
+        tgSend(chatId, `Hand "${name}" error: ${err.message}`).catch(() => {});
+      });
+      return;
+    }
+
+    // Lifecycle commands: activate, pause, resume, deactivate
+    if (typeof reg[action] !== "function") {
+      await tgSend(chatId, `Unknown action: ${action}`);
+      return;
+    }
+    const result = reg[action](name);
+    if (result.ok) {
+      await tgSend(chatId, `${action}d "${name}".`);
+    } else {
+      await tgSend(chatId, `Failed: ${result.error}`);
+    }
+  } catch (err) {
+    await tgSend(chatId, `Error: ${err.message}`);
+  }
+}
+
 function startClaudeOutputListener(chatId, sessionName) {
   // Poll the session's output periodically and batch-send to Telegram
   const buffer = { chatId: String(chatId), buffer: "", timer: null };
@@ -1359,6 +1454,13 @@ async function handleTelegramMessage(msg) {
       "/active <sessionId>",
       "/stop <sessionId>",
       "",
+      "Hands (autonomous tasks):",
+      "/hands — list all hands + status",
+      "/hand run <name> — trigger a hand now",
+      "/hand activate <name> — enable scheduling",
+      "/hand pause <name> — pause without losing state",
+      "/hand status <name> — detailed metrics",
+      "",
       "Notes:",
       "- If a session asks for 1/2/3, just reply with the number.",
       "- When a Claude session is active, messages are forwarded to it.",
@@ -1428,6 +1530,18 @@ async function handleTelegramMessage(msg) {
 
   if (/^\/(sessions|ls|list)$/.test(text.toLowerCase())) {
     await handleListSessions(chatId);
+    return;
+  }
+
+  // ── Hands commands ──
+  if (/^\/hands$/i.test(text)) {
+    await handleHandsList(chatId);
+    return;
+  }
+
+  const handCmd = text.match(/^\/hand\s+(run|activate|pause|resume|deactivate|status)\s+(\S+)/i);
+  if (handCmd) {
+    await handleHandCommand(chatId, handCmd[1].toLowerCase(), handCmd[2]);
     return;
   }
 
@@ -1683,6 +1797,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("Fatal:", e.message);
+  console.error("Fatal:", e.stack || e.message);
   process.exit(1);
 });
