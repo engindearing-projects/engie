@@ -27,6 +27,7 @@ import { warmDaemon, warmMcpServers } from "./tools.mjs";
 import { validateResponse } from "./response-validator.mjs";
 import { estimateTokens, estimateMessages } from "./token-utils.mjs";
 import { runLongTask, findInterruptedTask } from "./task-runner.mjs";
+import { getSessionManager } from "./claude-sessions.mjs";
 import {
   createSession as dbCreateSession,
   listSessions as dbListSessions,
@@ -727,6 +728,32 @@ function handleRequest(ws, msg) {
       }
     }
 
+    // ── Claude Terminal Sessions ──
+    case "claude.start": {
+      handleClaudeStart(ws, id, params);
+      return;
+    }
+
+    case "claude.send": {
+      handleClaudeSend(ws, id, params);
+      return;
+    }
+
+    case "claude.close": {
+      handleClaudeClose(ws, id, params);
+      return;
+    }
+
+    case "claude.list": {
+      handleClaudeList(ws, id);
+      return;
+    }
+
+    case "claude.capture": {
+      handleClaudeCapture(ws, id, params);
+      return;
+    }
+
     default:
       return sendTo(ws, { type: "res", id, ok: false, error: { message: `Unknown method: ${method}` } });
   }
@@ -804,6 +831,84 @@ function handleConfigGet(ws, id) {
   sendTo(ws, { type: "res", id, ok: true, payload: safe });
 }
 
+// ── Claude Terminal Session Handlers ──────────────────────────────────────
+
+async function handleClaudeStart(ws, id, params) {
+  const { name, projectDir, initialPrompt } = params;
+  if (!name || !projectDir) {
+    return sendTo(ws, { type: "res", id, ok: false, error: { message: "name and projectDir required" } });
+  }
+
+  try {
+    const manager = getSessionManager();
+    const session = await manager.startSession(name, projectDir, initialPrompt || null);
+
+    // Wire output monitoring to broadcast
+    manager.onOutput(name, (sessionName, delta) => {
+      broadcast("claude.output", { name: sessionName, delta });
+    });
+
+    sendTo(ws, { type: "res", id, ok: true, payload: session });
+  } catch (err) {
+    sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+  }
+}
+
+async function handleClaudeSend(ws, id, params) {
+  const { name, message } = params;
+  if (!name || !message) {
+    return sendTo(ws, { type: "res", id, ok: false, error: { message: "name and message required" } });
+  }
+
+  try {
+    const manager = getSessionManager();
+    await manager.sendMessage(name, message);
+    sendTo(ws, { type: "res", id, ok: true, payload: { ok: true } });
+  } catch (err) {
+    sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+  }
+}
+
+async function handleClaudeClose(ws, id, params) {
+  const { name } = params;
+  if (!name) {
+    return sendTo(ws, { type: "res", id, ok: false, error: { message: "name required" } });
+  }
+
+  try {
+    const manager = getSessionManager();
+    await manager.closeSession(name);
+    sendTo(ws, { type: "res", id, ok: true, payload: { ok: true } });
+  } catch (err) {
+    sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+  }
+}
+
+async function handleClaudeList(ws, id) {
+  try {
+    const manager = getSessionManager();
+    const sessions = await manager.listSessions();
+    sendTo(ws, { type: "res", id, ok: true, payload: { sessions } });
+  } catch (err) {
+    sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+  }
+}
+
+async function handleClaudeCapture(ws, id, params) {
+  const { name, lines } = params;
+  if (!name) {
+    return sendTo(ws, { type: "res", id, ok: false, error: { message: "name required" } });
+  }
+
+  try {
+    const manager = getSessionManager();
+    const { full, delta } = await manager.capture(name, lines || 100);
+    sendTo(ws, { type: "res", id, ok: true, payload: { content: full, delta } });
+  } catch (err) {
+    sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+  }
+}
+
 // ── Bun Server ──────────────────────────────────────────────────────────────
 
 const hostname = BIND === "lan" ? "0.0.0.0" : "127.0.0.1";
@@ -871,6 +976,11 @@ const server = Bun.serve({
 
 function shutdown(signal) {
   console.log(`\n[gateway] ${signal} received, shutting down...`);
+  // Close all Claude terminal sessions
+  try {
+    const manager = getSessionManager();
+    manager.shutdown().catch(() => {});
+  } catch {}
   for (const [ws] of clients) {
     try { ws.close(1001, "Server shutting down"); } catch {}
   }

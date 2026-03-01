@@ -195,15 +195,22 @@ export function invokeClaude(opts, limiter) {
         if (code === 0) {
           try {
             const parsed = JSON.parse(stdout);
+
+            // Handle error_max_turns: the response has no useful `result` text,
+            // just metadata (subtype, session_id, num_turns). Don't dump raw JSON.
+            const hitMaxTurns = parsed.subtype === "error_max_turns"
+              || (parsed.is_error && !parsed.result && parsed.num_turns);
+
             const result = {
               jobId,
               success: true,
-              result: parsed.result || parsed,
+              result: hitMaxTurns ? "" : (parsed.result || parsed),
               cost_usd: parsed.cost_usd,
               duration_ms: parsed.duration_ms,
               num_turns: parsed.num_turns,
               session_id: parsed.session_id,
               model: parsed.model,
+              hitMaxTurns,
             };
             if (captureRawOutput) result._rawOutput = stdout;
             resolveJob(result);

@@ -302,7 +302,10 @@ export async function runLongTask({ prompt, systemPrompt, claudeOpts, session, l
     if (session) session.claudeSessionId = lastSessionId;
 
     const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
-    fullResult += (fullResult ? "\n\n" : "") + text;
+    // Only append non-empty text — hitMaxTurns responses have empty result
+    if (text && text.trim()) {
+      fullResult += (fullResult ? "\n\n" : "") + text;
+    }
     totalCost += result.cost_usd || 0;
     totalTurns += result.num_turns || 0;
 

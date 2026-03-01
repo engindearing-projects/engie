@@ -848,6 +848,182 @@ async function runComparisons(prompt) {
   return outputs;
 }
 
+// ── Claude Terminal Session Commands ──────────────────────────────────────
+// /claude start <project_dir> [initial prompt] — start a Claude Code session
+// /claude send <message>                       — send to active claude session
+// /claude stop [name]                          — close the active/named session
+// /claude status                               — list active sessions
+
+// Active claude sessions for this bridge (chatId → sessionName)
+const claudeSessions = new Map();
+// Batched output buffers: sessionName → { chatId, buffer, timer }
+const claudeOutputBuffers = new Map();
+const CLAUDE_OUTPUT_BATCH_MS = 15000; // batch output every 15 seconds
+
+function parseClaudeCommand(text) {
+  const match = text.match(/^\/claude\s+(\w+)\s*([\s\S]*)$/i);
+  if (!match) return null;
+  return { subcommand: match[1].toLowerCase(), args: match[2].trim() };
+}
+
+async function handleClaudeStart(chatId, args) {
+  if (!args) {
+    await tgSend(chatId, "Usage: /claude start <project_dir> [initial prompt]");
+    return;
+  }
+
+  // Parse: first token is project dir, rest is optional initial prompt
+  const parts = args.match(/^(\S+)\s*([\s\S]*)$/);
+  if (!parts) {
+    await tgSend(chatId, "Usage: /claude start <project_dir> [initial prompt]");
+    return;
+  }
+
+  const projectDir = parts[1];
+  const initialPrompt = parts[2] || null;
+  const sessionName = `tg-claude-${chatId}-${Date.now().toString(36)}`;
+
+  try {
+    await ensureGateway();
+    const result = await request("claude.start", {
+      name: sessionName,
+      projectDir,
+      initialPrompt,
+    }, 30000);
+
+    claudeSessions.set(String(chatId), sessionName);
+
+    await tgSend(chatId, `Claude session started: ${sessionName}\nProject: ${projectDir}${initialPrompt ? "\nSent initial prompt." : ""}\n\nReply with /claude send <message> or just type normally while session is active.`);
+
+    // Start listening for output from this session via gateway events
+    startClaudeOutputListener(chatId, sessionName);
+  } catch (err) {
+    await tgSend(chatId, `Failed to start Claude session: ${err.message}`);
+  }
+}
+
+async function handleClaudeSendMsg(chatId, message) {
+  const sessionName = claudeSessions.get(String(chatId));
+  if (!sessionName) {
+    await tgSend(chatId, "No active Claude session. Use /claude start <project_dir> first.");
+    return;
+  }
+
+  if (!message) {
+    await tgSend(chatId, "Usage: /claude send <message>");
+    return;
+  }
+
+  try {
+    await ensureGateway();
+    await request("claude.send", { name: sessionName, message }, 15000);
+  } catch (err) {
+    await tgSend(chatId, `Failed to send to Claude: ${err.message}`);
+  }
+}
+
+async function handleClaudeStop(chatId, name) {
+  const sessionName = name || claudeSessions.get(String(chatId));
+  if (!sessionName) {
+    await tgSend(chatId, "No active Claude session to stop.");
+    return;
+  }
+
+  try {
+    await ensureGateway();
+    await request("claude.close", { name: sessionName }, 15000);
+  } catch (err) {
+    // Session may already be gone
+    console.log(`[claude-tg] close error: ${err.message}`);
+  }
+
+  // Clean up
+  if (claudeSessions.get(String(chatId)) === sessionName) {
+    claudeSessions.delete(String(chatId));
+  }
+  stopClaudeOutputListener(sessionName);
+
+  await tgSend(chatId, `Claude session closed: ${sessionName}`);
+}
+
+async function handleClaudeStatus(chatId) {
+  try {
+    await ensureGateway();
+    const result = await request("claude.list", {}, 10000);
+    const sessions = result?.sessions || [];
+    if (sessions.length === 0) {
+      await tgSend(chatId, "No active Claude sessions.");
+      return;
+    }
+    const lines = sessions.map((s) => {
+      const age = Math.round(s.age / 1000);
+      const ageStr = age < 60 ? `${age}s` : `${Math.round(age / 60)}m`;
+      return `- ${s.name} (${s.projectDir}) ${s.status} ${ageStr} ago, ${s.messageCount} msgs`;
+    });
+    await tgSend(chatId, `Claude sessions:\n${lines.join("\n")}`);
+  } catch (err) {
+    await tgSend(chatId, `Failed to list sessions: ${err.message}`);
+  }
+}
+
+function startClaudeOutputListener(chatId, sessionName) {
+  // Poll the session's output periodically and batch-send to Telegram
+  const buffer = { chatId: String(chatId), buffer: "", timer: null };
+  claudeOutputBuffers.set(sessionName, buffer);
+
+  const flushBuffer = async () => {
+    const buf = claudeOutputBuffers.get(sessionName);
+    if (!buf || !buf.buffer) return;
+    const text = buf.buffer;
+    buf.buffer = "";
+    if (text.trim()) {
+      await tgSend(buf.chatId, `[claude] ${text}`).catch((e) =>
+        console.error(`[claude-tg] send error: ${e.message}`)
+      );
+    }
+  };
+
+  // Use gateway event listening to get output
+  // Poll via claude.capture every CLAUDE_OUTPUT_BATCH_MS
+  const pollOutput = async () => {
+    if (!claudeOutputBuffers.has(sessionName)) return;
+
+    try {
+      await ensureGateway();
+      const result = await request("claude.capture", { name: sessionName, lines: 100 }, 10000);
+      if (result?.delta) {
+        const buf = claudeOutputBuffers.get(sessionName);
+        if (buf) {
+          buf.buffer += result.delta;
+        }
+      }
+    } catch {
+      // Session may be gone
+      if (!claudeSessions.has(String(chatId))) {
+        stopClaudeOutputListener(sessionName);
+        return;
+      }
+    }
+
+    // Flush and schedule next poll
+    await flushBuffer();
+    const buf = claudeOutputBuffers.get(sessionName);
+    if (buf) {
+      buf.timer = setTimeout(pollOutput, CLAUDE_OUTPUT_BATCH_MS);
+    }
+  };
+
+  buffer.timer = setTimeout(pollOutput, CLAUDE_OUTPUT_BATCH_MS);
+}
+
+function stopClaudeOutputListener(sessionName) {
+  const buf = claudeOutputBuffers.get(sessionName);
+  if (buf) {
+    if (buf.timer) clearTimeout(buf.timer);
+    claudeOutputBuffers.delete(sessionName);
+  }
+}
+
 // ── Telegram Command Handling ─────────────────────────────────────────────
 
 function parseStartCommand(text) {
@@ -1161,7 +1337,13 @@ async function handleTelegramMessage(msg) {
     const help = [
       "Telegram Bridge Help",
       "",
-      "Start a terminal session:",
+      "Claude Code sessions:",
+      "/claude start <dir> [prompt] — start interactive Claude session",
+      "/claude send <message> — send to active Claude session",
+      "/claude stop — close active Claude session",
+      "/claude status — list active sessions",
+      "",
+      "Terminal sessions:",
       "/term claude | /term codex | /term engie | /term ollama",
       "",
       "Compare mode:",
@@ -1178,9 +1360,32 @@ async function handleTelegramMessage(msg) {
       "",
       "Notes:",
       "- If a session asks for 1/2/3, just reply with the number.",
+      "- When a Claude session is active, messages are forwarded to it.",
     ].join("\n");
     await tgSend(chatId, help);
     return;
+  }
+
+  // Claude session commands
+  const claudeCmd = parseClaudeCommand(text);
+  if (claudeCmd) {
+    switch (claudeCmd.subcommand) {
+      case "start":
+        await handleClaudeStart(chatId, claudeCmd.args);
+        return;
+      case "send":
+        await handleClaudeSendMsg(chatId, claudeCmd.args);
+        return;
+      case "stop":
+        await handleClaudeStop(chatId, claudeCmd.args || null);
+        return;
+      case "status":
+        await handleClaudeStatus(chatId);
+        return;
+      default:
+        await tgSend(chatId, `Unknown /claude subcommand: ${claudeCmd.subcommand}\nUse: start, send, stop, status`);
+        return;
+    }
   }
 
   // Terminal commands
@@ -1284,6 +1489,21 @@ async function handleTelegramMessage(msg) {
   if (chatState.activeSession && text.startsWith(">")) {
     await handleSendToSession(chatId, chatState.activeSession, text.slice(1).trim());
     return;
+  }
+
+  // If there's an active Claude terminal session, forward coding messages to it
+  const activeClaudeSession = claudeSessions.get(String(chatId));
+  if (activeClaudeSession && isCodingPrompt(text)) {
+    try {
+      await ensureGateway();
+      await request("claude.send", { name: activeClaudeSession, message: text }, 15000);
+      logActivity("telegram-bridge", "user", `[→claude] ${text}`, sessionKeyForChat(chatId));
+      return;
+    } catch (err) {
+      // Session may have ended — fall through to normal chat
+      console.log(`[claude-tg] forward failed, session may be gone: ${err.message}`);
+      claudeSessions.delete(String(chatId));
+    }
   }
 
   // Otherwise forward to Familiar directly (no preprocessing)
