@@ -414,6 +414,43 @@ install_all() {
     echo "    + $svc"
   done
 
+  # Configure OpenCode if installed
+  if command -v opencode &>/dev/null; then
+    local OC_DIR="$HOME/.config/opencode"
+    local OC_CFG="$OC_DIR/opencode.json"
+    if [ ! -f "$OC_CFG" ]; then
+      mkdir -p "$OC_DIR"
+      cat > "$OC_CFG" <<'OCJSON'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "claude-sub/claude-subscription",
+  "provider": {
+    "claude-sub": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Claude Subscription",
+      "options": {
+        "baseURL": "http://localhost:18791/v1"
+      },
+      "models": {
+        "claude-subscription": {
+          "name": "Claude (via Familiar)",
+          "limit": {
+            "context": 200000,
+            "output": 65536
+          }
+        }
+      }
+    }
+  }
+}
+OCJSON
+      echo "    + OpenCode config written to $OC_CFG"
+    fi
+    echo ""
+    echo "  OpenCode configured — run 'opencode' in any project to use your"
+    echo "  Claude subscription with local fallback."
+  fi
+
   echo ""
   echo "  All services installed."
   echo "  Logs: $LOG_DIR/"

@@ -33,7 +33,57 @@ else
   ok "Bun installed"
 fi
 
-# ── 2. Install dependencies ─────────────────────────────────────────────────
+# ── 2. Check for OpenCode ───────────────────────────────────────────────────
+
+if command -v opencode &>/dev/null; then
+  ok "OpenCode $(opencode --version 2>/dev/null || echo '') found"
+else
+  info "OpenCode not found — installing via Homebrew..."
+  if command -v brew &>/dev/null; then
+    brew install opencode
+    ok "OpenCode installed"
+  else
+    info "Skipping OpenCode install (Homebrew not available). Install manually: brew install opencode"
+  fi
+fi
+
+# Generate OpenCode config if it doesn't already exist
+OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
+OPENCODE_CONFIG="$OPENCODE_CONFIG_DIR/opencode.json"
+
+if command -v opencode &>/dev/null && [ ! -f "$OPENCODE_CONFIG" ]; then
+  info "Generating OpenCode config with claude-sub provider..."
+  mkdir -p "$OPENCODE_CONFIG_DIR"
+  cat > "$OPENCODE_CONFIG" <<'OCJSON'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "claude-sub/claude-subscription",
+  "provider": {
+    "claude-sub": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Claude Subscription",
+      "options": {
+        "baseURL": "http://localhost:18791/v1"
+      },
+      "models": {
+        "claude-subscription": {
+          "name": "Claude (via Familiar)",
+          "limit": {
+            "context": 200000,
+            "output": 65536
+          }
+        }
+      }
+    }
+  }
+}
+OCJSON
+  ok "OpenCode config written to $OPENCODE_CONFIG"
+elif [ -f "$OPENCODE_CONFIG" ]; then
+  ok "OpenCode config already exists — skipping"
+fi
+
+# ── 3. Install dependencies ─────────────────────────────────────────────────
 
 info "Installing CLI dependencies..."
 (cd "$SCRIPT_DIR/apps/cli" && bun install)
@@ -45,7 +95,7 @@ if [ -f "$SCRIPT_DIR/mcp-bridge/package.json" ]; then
   ok "mcp-bridge dependencies installed"
 fi
 
-# ── 3. Link global command ──────────────────────────────────────────────────
+# ── 4. Link global command ──────────────────────────────────────────────────
 
 info "Linking 'familiar' command globally..."
 (cd "$SCRIPT_DIR/apps/cli" && npm link 2>/dev/null) || true
@@ -65,7 +115,7 @@ else
   fi
 fi
 
-# ── 4. Launch wizard ────────────────────────────────────────────────────────
+# ── 5. Launch wizard ────────────────────────────────────────────────────────
 
 echo ""
 echo -e "${CYAN}Setup complete. Launching the setup wizard...${RESET}"

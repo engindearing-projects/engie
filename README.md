@@ -59,6 +59,82 @@ npm install -g familiar-run
 
 ---
 
+## Use Your Subscription
+
+Familiar turns your existing cloud subscription into a self-improving local AI. Here's how:
+
+1. **You code with a cloud model** (via the claude-proxy or any compatible tool). Every prompt and response is captured by the Forge pipeline as a training pair.
+2. **Forge trains your local model** on those pairs. Auto-training fires at 100 pairs, ground-truth mining runs nightly, and models improve based on how you actually work.
+3. **When the cloud is gone — rate-limited, offline, subscription expired — the system falls back to your trained local models automatically.** No config changes needed. The proxy and gateway detect errors and route to Ollama.
+
+Over time, the local models get better at *your* tasks, and you rely on the cloud less.
+
+### Three modes
+
+| Mode | What happens |
+|------|-------------|
+| **Subscription active** | Cloud model handles heavy tasks, Forge captures pairs for training |
+| **Rate-limited / offline** | Automatic fallback to Ollama — no interruption |
+| **Training off** | Pure local inference, no cloud calls |
+
+You can toggle training mode with `FAMILIAR_TRAINING_MODE=true|false` in the proxy config.
+
+### Using OpenCode
+
+[OpenCode](https://opencode.ai) is a terminal-based coding agent that supports custom OpenAI-compatible providers. Point it at the claude-proxy and you get cloud-quality code assistance with automatic local fallback — no separate API key needed.
+
+**Install OpenCode:**
+
+```bash
+brew install opencode
+```
+
+**Configure the provider:**
+
+Create (or edit) `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "claude-sub/claude-subscription",
+  "provider": {
+    "claude-sub": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Claude Subscription",
+      "options": {
+        "baseURL": "http://localhost:18791/v1"
+      },
+      "models": {
+        "claude-subscription": {
+          "name": "Claude (via Familiar)",
+          "limit": {
+            "context": 200000,
+            "output": 65536
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This tells OpenCode to send requests to the claude-proxy on port 18791. The proxy handles authentication through your local subscription — no API key field needed.
+
+**Switch models inside OpenCode:**
+
+Press `/` and type `models` (or use the model picker in the UI) to switch between `claude-sub/claude-subscription` and any other providers you've configured.
+
+**Verify it's working:**
+
+1. Open a terminal in any project and run `opencode`
+2. Send a message — it should respond using your cloud subscription
+3. Check `~/.familiar/logs/claude-proxy.log` to confirm requests are flowing through the proxy
+4. If the cloud is unavailable, the proxy falls back to Ollama and you'll see the switch in the logs
+
+The setup script (`./setup.sh`) and service installer (`./services/install-services.sh`) both generate this config automatically if OpenCode is installed.
+
+---
+
 ## Architecture
 
 ### Services
