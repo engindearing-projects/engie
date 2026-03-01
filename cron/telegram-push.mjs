@@ -28,18 +28,25 @@ if (!BOT_TOKEN) {
 
 // Default chat ID from paired Telegram DM session
 if (!CHAT_ID) {
-  try {
-    const sessPath = resolve(__dirname, "../config/agents/familiar/sessions/sessions.json");
-    const sessions = JSON.parse(readFileSync(sessPath, "utf8"));
-    for (const sess of Object.values(sessions)) {
-      const from = sess.origin?.from;
-      if (from?.startsWith("telegram:")) {
-        CHAT_ID = from.split(":")[1];
-        break;
+  const sessionPaths = [
+    resolve(__dirname, "../config/agents/familiar/sessions/sessions.json"),
+    resolve(__dirname, "../config/agents/engie/sessions/sessions.json"),
+  ];
+  for (const sessPath of sessionPaths) {
+    if (CHAT_ID) break;
+    try {
+      if (!existsSync(sessPath)) continue;
+      const sessions = JSON.parse(readFileSync(sessPath, "utf8"));
+      for (const sess of Object.values(sessions)) {
+        const from = sess.origin?.from;
+        if (from?.startsWith("telegram:")) {
+          CHAT_ID = from.split(":")[1];
+          break;
+        }
       }
+    } catch {
+      // Try next path
     }
-  } catch {
-    // Fall through to error below
   }
 }
 
@@ -68,16 +75,17 @@ async function main() {
   }
 
   // Build summary message
+  const esc = (s) => String(s).replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
   const platforms = [...new Set(latest.map((i) => i.platform))];
-  const lines = [`*${unreadCount} new update${unreadCount !== 1 ? "s" : ""}* from ${platforms.join(", ")}:\n`];
+  const lines = [`*${esc(unreadCount)} new update${unreadCount !== 1 ? "s" : ""}* from ${esc(platforms.join(", "))}:\n`];
 
   for (const item of latest.slice(0, 5)) {
-    const preview = item.content.slice(0, 100).replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
-    lines.push(`• _${item.platform}_ \\(${item.role}\\): ${preview}${item.content.length > 100 ? "\\.\\.\\." : ""}`);
+    const preview = esc(item.content.slice(0, 100));
+    lines.push(`• _${esc(item.platform)}_ \\(${esc(item.role)}\\): ${preview}${item.content.length > 100 ? "\\.\\.\\." : ""}`);
   }
 
   if (unreadCount > 5) {
-    lines.push(`\n_\\.\\.\\. and ${unreadCount - 5} more_`);
+    lines.push(`\n_\\.\\.\\. and ${esc(unreadCount - 5)} more_`);
   }
 
   const text = lines.join("\n");

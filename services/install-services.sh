@@ -19,6 +19,7 @@ set -euo pipefail
 #   com.familiar.forge-auto       — Auto-trainer daemon
 #   com.familiar.forge-mine       — Ground-truth data miner (daily 4 AM)
 #   com.familiar.caffeinate       — Prevent sleep (always-on brain)
+#   com.familiar.watchdog         — Self-healing monitor (every 5 min)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -51,6 +52,7 @@ SERVICES=(
   "com.familiar.forge-mine"
   "com.familiar.learner"
   "com.familiar.caffeinate"
+  "com.familiar.watchdog"
 )
 
 # Old service labels to clean up
@@ -243,9 +245,11 @@ PLIST
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>HOME</key><string>$HOME</string>
         <key>TELEGRAM_BOT_TOKEN</key><string>$BOT_TOKEN</string>
         <key>TG_BRIDGE_ALLOW_ALL</key><string>1</string>
     </dict>
+    <key>WorkingDirectory</key><string>$PROJECT_DIR</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>StandardOutPath</key><string>$LOG_DIR/telegram-bridge.log</string>
@@ -256,6 +260,8 @@ PLIST
       ;;
 
     com.familiar.telegram-push)
+      local PUSH_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+      local PUSH_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
       cat > "$file" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -272,10 +278,14 @@ PLIST
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>HOME</key><string>$HOME</string>
+        <key>TELEGRAM_BOT_TOKEN</key><string>$PUSH_BOT_TOKEN</string>
+        <key>TELEGRAM_CHAT_ID</key><string>$PUSH_CHAT_ID</string>
     </dict>
     <key>RunAtLoad</key><false/>
     <key>StandardOutPath</key><string>$LOG_DIR/telegram-push.log</string>
     <key>StandardErrorPath</key><string>$LOG_DIR/telegram-push.error.log</string>
+    <key>WorkingDirectory</key><string>$PROJECT_DIR</string>
 </dict>
 </plist>
 PLIST
@@ -387,6 +397,32 @@ PLIST
     </array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
+</dict>
+</plist>
+PLIST
+      ;;
+
+    com.familiar.watchdog)
+      cat > "$file" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$label</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/bun</string>
+        <string>$SCRIPT_DIR/watchdog.mjs</string>
+    </array>
+    <key>StartInterval</key><integer>300</integer>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>$LOG_DIR/watchdog.log</string>
+    <key>StandardErrorPath</key><string>$LOG_DIR/watchdog.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key><string>$HOME</string>
+    </dict>
 </dict>
 </plist>
 PLIST
