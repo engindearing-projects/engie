@@ -31,16 +31,16 @@
   },
   "researcher": {
     "status": "active",
-    "lastRun": "2026-03-01T17:39:23.700Z",
-    "lastDuration": 780638,
+    "lastRun": "2026-03-01T18:59:45.650Z",
+    "lastDuration": 360120,
     "lastError": null,
-    "runCount": 2,
+    "runCount": 6,
     "metrics": {
-      "run_duration": 780.638
+      "run_duration": 360.12
     },
     "checkpoint": {
       "lastPhase": "report",
-      "at": "2026-03-01T17:39:23.700Z"
+      "at": "2026-03-01T18:59:45.650Z"
     },
     "activatedAt": null
   }

@@ -1,1 +1,48 @@
-{"date":"2026-03-01T09:00:00.000Z","phase":"seed","built":"Research document created at memory/openfang-research.md with full OpenFang architecture analysis. Identified 6 priority capabilities to port: Hands manifest system, knowledge graphs, CRAAP evaluation, skill pipeline, workflow engine, enhanced security. OpenFang installed at ~/.openfang/bin/openfang v0.2.3.","worked":"OpenFang binary installed and accessible. Research doc written and will be ingested into RAG at next learner cycle.","next":"Phase 3a: Build a Hands manifest system — define HAND.json schema, write a loader in brain/hands/, wire it into the brain system so autonomous tasks can be declared as manifests with schedules, tools, metrics, and multi-phase playbooks. Start with porting the Researcher and Collector Hand concepts to work with Familiar's existing tools."}
+[
+{
+"date":"2026-03-01T09:00:00.000Z",
+"phase":"seed",
+"built":"Research document created at memory/openfang-research.md with full OpenFang architecture analysis. Identified 6 priority capabilities to port: Hands manifest system, knowledge graphs, CRAAP evaluation, skill pipeline, workflow engine, enhanced security. OpenFang installed at ~/.openfang/bin/openfang v0.2.3.",
+"worked":"OpenFang binary installed and accessible. Research doc written and will be ingested into RAG at next learner cycle.",
+"next":"Phase 3a: Build a Hands manifest system — define HAND.json schema, write a loader in brain/hands/, wire it into the brain system so autonomous tasks can be declared as manifests with schedules, tools, metrics, and multi-phase playbooks. Start with porting the Researcher and Collector Hand concepts to work with Familiar's existing tools."}
+,
+{
+"date":"2026-03-01",
+"phase":"study",
+"topic":"Priority 1 complete, Priority 2 planning: Knowledge Graphs",
+"findings":"Priority 1 (Hands manifest system) is FULLY COMPLETE: schema.mjs (HAND.json validator), registry.mjs (manifest loader + lifecycle: activate/pause/resume/deactivate), runner.mjs (multi-phase LLM executor with Ollama+Claude fallback, Telegram notify, checkpoint tracking), cli.mjs (CLI), and 4 production HAND.json manifests (learner, researcher, forge-miner, forge-trainer). State persisted to state.json. CRAAP evaluation on Priority 2 (Knowledge Graphs): 4.6/5 — strongly recommended. Current RAG: 638 flat chunks, cosine similarity only. Gap: no entity extraction, no relationship mapping, no graph traversal. Plan: (1) brain/rag/graph.mjs — entities + relationships tables, LLM entity extraction, co-occurrence relationships, BFS traversal; (2) modify ingest.mjs to extract entities per chunk; (3) extend index.mjs with graphSearch() hybrid mode. Entity types: person, project, repo, task, tool, concept, org. Relationships via co-occurrence weight + typed patterns.",
+"next":"Build brain/rag/graph.mjs: initGraphSchema(), extractAndStoreEntities() using Ollama LLM call, addRelationship(), getEntity(), getRelated(), searchEntities(), getEntityGraph(). Then wire into ingest.mjs and add graphSearch() to index.mjs. Test by running ingest on existing 638 chunks and verifying entity table population."}
+,
+{
+"date":"2026-03-01",
+"phase":"evaluate",
+"topic":"CRAAP evaluation of OpenFang research",
+"findings":"Score: 22/25 (4.4/5). Currency 5/5 (same-day research). Relevance 5/5 (already drove P1 Hands implementation). Authority 3/5 (real binary, pre-1.0 org, unaudited benchmarks). Accuracy 4/5 (core claims verified via binary; performance/security stats unconfirmed). Purpose 5/5 (pattern extraction only, not a dependency). Overall: STRONG PASS. Main caveat: security claims (16 layers) should be source-audited before adoption in P4.",
+"next":"Begin P2: knowledge graph implementation — brain/rag/graph.mjs with entity extraction, relationship mapping, BFS traversal. Then wire into ingest.mjs and extend index.mjs with graphSearch() hybrid mode."}
+,
+{
+"date":"2026-03-01",
+"phase":"synthesize",
+"topic":"P2: Knowledge Graph implementation plan",
+"findings":"Full build plan complete. 3 files: CREATE brain/rag/graph.mjs (initGraphSchema, extractEntities via llama3.2:latest, upsertEntity, addCoOccurrence, BFS getRelated, getEntityGraph). MODIFY ingest.mjs to extract entities per chunk post-embed (non-blocking). MODIFY index.mjs to add graphSearch() hybrid mode (cosine + 0.05 graph boost). Schema: entities + relationships + entity_chunks tables in existing knowledge.db. Entity types: person|project|repo|task|tool|concept|org. Relationship types: co-occurs|uses|built|is-part-of. Backfill flag for existing 638 chunks.",
+"next":"Build brain/rag/graph.mjs. Wire into ingest.mjs. Add graphSearch() to index.mjs. Run backfill. Smoke test: entity count >10, relationships >20, hybrid search returns boosted results."}
+,
+{
+"date":"2026-03-01",
+"phase":"report",
+"topic":"OpenFang deep research cycle complete — all 4 phases logged",
+"findings":"Full researcher Hand cycle closed. CRAAP score: 22/25 (4.4/5) — strong pass. Binary v0.2.3 confirmed at ~/.openfang/bin/openfang (34MB). Six priority capabilities mapped to Familiar gaps. P1 Hands manifest system: DONE (schema.mjs, registry.mjs, runner.mjs, cli.mjs, 4 production manifests). P2 Knowledge Graphs: fully planned — brain/rag/graph.mjs with entity extraction via llama3.2, BFS traversal, hybrid graphSearch() boosting. P3 CRAAP pipeline: integrated inline. P4–P6 pending. Security caveat: OpenFang 16-layer security claim unverified, must source-audit before P6 adoption. Synthesized build plan ready for next iteration: 3 files to create/modify (graph.mjs, ingest.mjs, index.mjs), schema targets knowledge.db, backfill for existing 638 chunks.",
+"next":"Execute P2: implement brain/rag/graph.mjs — initGraphSchema(), extractAndStoreEntities() via Ollama llama3.2, addCoOccurrence(), hybrid graphSearch() with 0.05 graph boost. Wire into ingest.mjs (non-blocking post-embed). Run backfill on 638 chunks. Smoke test: entities >10, relationships >20, boosted search results verified."}
+,
+{
+"date":"2026-03-01T17:39:23.700Z",
+"phase":"build",
+"topic":"OpenFang Knowledge Graphs: graph.mjs — entity extraction, co-occurrence, BFS traversal, hybrid graphSearch()",
+"files_changed":["brain/rag/graph.mjs","brain/rag/ingest.mjs","brain/rag/index.mjs"],
+"status":"ok",
+"next":"Wire into ingest.mjs (non-blocking post-embed). Run backfill on 638 chunks. Smoke test: entities >10, relationships >20, boosted search results verified."}
+,
+{"date":"2026-03-01","phase":"build","topic":"Knowledge Graph: created brain/rag/graph.mjs","files_changed":["brain/rag/graph.mjs"],"status":"ok","next":"Wire buildGraph() into ingest.mjs (non-blocking, post-embed). Add graphSearch() hybrid mode to index.mjs. Run backfill: bun brain/rag/graph.mjs build 638"}
+,
+{"date":"2026-03-01","phase":"report","topic":"Knowledge Graph — graph.mjs built and tested","files_changed":["brain/rag/graph.mjs"],"status":"ok","next":"Wire buildGraph() into ingest.mjs post-embed (non-blocking). Add graphSearch() hybrid mode to index.mjs. Run backfill on 638 existing chunks. Smoke test: entities >10, relationships >20, hybrid search returns boosted results."}
+]

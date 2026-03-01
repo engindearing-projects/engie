@@ -154,6 +154,7 @@ Everything runs as launchd services and auto-starts on boot:
 | `com.familiar.forge-mine` | — | Ground-truth miner (daily 4 AM) |
 | `com.familiar.learner` | — | Autonomous learning cycle (daily 5 AM) |
 | `com.familiar.caffeinate` | — | Prevents macOS sleep |
+| `com.familiar.watchdog` | — | Self-healing monitor (every 5 min) |
 
 Ollama runs separately via Homebrew (`homebrew.mxcl.ollama` on port 11434).
 
