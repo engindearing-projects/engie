@@ -985,13 +985,16 @@ const ROLE_SYSTEMS = {
  * (tool loop, MCP bridge, smart routing, Forge training collection).
  * Falls back to direct ollamaChat if gateway is unavailable.
  */
-async function sendViaGateway(sessionKey, message) {
+async function sendViaGateway(sessionKey, message, onProgress) {
+  // 30 min timeout for long-running tasks (task-runner handles continuations)
+  const GATEWAY_TIMEOUT_MS = 30 * 60 * 1000;
+
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${GW_PORT}`);
     const timeout = setTimeout(() => {
       try { ws.close(); } catch {}
-      reject(new Error("Gateway timeout (120s)"));
-    }, 120_000);
+      reject(new Error("Gateway timeout (30min)"));
+    }, GATEWAY_TIMEOUT_MS);
 
     let resolved = false;
     let reqId = 0;
@@ -1029,9 +1032,12 @@ async function sendViaGateway(sessionKey, message) {
         return;
       }
 
-      // Step 3: wait for final response (filter by sessionKey)
+      // Step 3: handle chat events (progress + final)
       if (msg.type === "event" && msg.event === "chat" && msg.payload?.sessionKey === sessionKey) {
-        if (msg.payload.state === "final") {
+        if (msg.payload.state === "progress") {
+          // Intermediate progress update — forward to Telegram
+          onProgress?.(msg.payload.message?.content || "");
+        } else if (msg.payload.state === "final") {
           resolved = true;
           clearTimeout(timeout);
           try { ws.close(); } catch {}
@@ -1066,9 +1072,13 @@ async function sendToFamiliar(chatId, message) {
   const { type: role } = classifyPrompt(message);
 
   // Try gateway first — gives full agent capabilities (tool loop, routing, Forge training)
+  // Progress messages are forwarded to Telegram as intermediate updates
   try {
     console.log(`[sendToFamiliar] role=${role} trying gateway at :${GW_PORT}...`);
-    const text = await sendViaGateway(sessionKey, message);
+    const text = await sendViaGateway(sessionKey, message, (progressMsg) => {
+      // Send intermediate progress updates to Telegram
+      tgSend(chatId, progressMsg).catch(() => {});
+    });
     historyAppend(sessionKey, "user", message, MAX_CHAT_HISTORY);
     historyAppend(sessionKey, "assistant", text, MAX_CHAT_HISTORY);
     console.log(`[sendToFamiliar] gateway response length: ${text.length}`);

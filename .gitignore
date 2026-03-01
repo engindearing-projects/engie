@@ -91,5 +91,7 @@ apps/web/
 config/media/inbound/
 __pycache__/
 brain/reflection/
+brain/tasks/
+memory/tasks/
 daemon/target/
 apps/terminal/target/

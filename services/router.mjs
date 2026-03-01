@@ -347,5 +347,13 @@ export class Router {
   }
 }
 
-export { ROLE_PROMPTS, ROLE_MODELS, ROLE_FALLBACKS };
+// Short role hints — injected as additional system prompt context in the agent loop
+const ROLE_HINTS = {
+  coding: "Focus on writing clean, well-structured code.",
+  reasoning: "Think step by step. Trace issues to root cause.",
+  tools: "Use the right tool for each step. Chain calls when needed.",
+  chat: "Be concise. Match the energy of the message.",
+};
+
+export { ROLE_PROMPTS, ROLE_MODELS, ROLE_FALLBACKS, ROLE_HINTS };
 export default Router;

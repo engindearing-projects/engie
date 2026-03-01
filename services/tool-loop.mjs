@@ -9,13 +9,33 @@
 
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdirSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, appendFileSync, readFileSync } from "node:fs";
 import { randomUUID, createHash } from "node:crypto";
 import { getToolSchemaText, executeTool } from "./tools.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
 const TRACES_DIR = resolve(PROJECT_DIR, "trainer", "data", "traces");
+
+// ── SOUL.md Identity Cache ───────────────────────────────────────────────────
+const SOUL_PATH = resolve(PROJECT_DIR, "config", "sandboxes", "agent-engie-dd14b25c", "SOUL.md");
+const SOUL_CACHE_TTL = 300_000; // 5 min
+let _soulCache = { text: null, at: 0 };
+
+export function getSoulContent() {
+  if (_soulCache.text !== null && Date.now() - _soulCache.at < SOUL_CACHE_TTL) {
+    return _soulCache.text;
+  }
+  try {
+    if (existsSync(SOUL_PATH)) {
+      const raw = readFileSync(SOUL_PATH, "utf8").trim();
+      _soulCache = { text: raw, at: Date.now() };
+      return raw;
+    }
+  } catch { /* ignore */ }
+  _soulCache = { text: "", at: Date.now() };
+  return "";
+}
 
 const DEFAULT_MODEL = "familiar-coder:latest";
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -186,10 +206,21 @@ export async function buildToolSystemPrompt(additionalContext = "", userPrompt =
     }
   }
 
+  // Inject SOUL.md identity
+  const soulContent = getSoulContent();
+  const identitySection = soulContent
+    ? `\n## Identity\n${soulContent}\n`
+    : "";
+
   const parts = [
     `You are Familiar, a persistent AI assistant from familiar.run — an expert coding assistant and PC manager with tool access.`,
     `You are running on ${user}'s Mac. Home directory: ${home}`,
     `Common paths: Desktop=${home}/Desktop, Downloads=${home}/Downloads, Documents=${home}/Documents`,
+    ``,
+    `Be concise — 1-3 sentences for simple questions, longer for complex tasks.`,
+    `If the question is about general knowledge (concepts, how-to, explanations), answer directly without tools.`,
+    `If the question involves the local system (files, battery, processes, disk, apps), ALWAYS use tools — never guess or use stale info.`,
+    `Never fabricate file contents, system info, or tool results.`,
     ``,
     `## Using Tools`,
     `To use a tool, output:`,
@@ -201,7 +232,7 @@ export async function buildToolSystemPrompt(additionalContext = "", userPrompt =
     `When you have enough information, respond with plain text (no tool_call tags).`,
     `You can make multiple tool calls in one response.`,
     ``,
-    `IMPORTANT: You MUST use tools to interact with the system. Do NOT write bash scripts for the user — execute commands directly with the bash tool. Do NOT guess at file contents — use read_file. Always use tools first, then explain results.`,
+    `When the user asks you to DO something on the system, use tools. Don't write scripts for the user to run — execute directly. Don't guess at file contents — use read_file. For knowledge questions, respond directly.`,
     ``,
     `## Examples`,
     ``,
@@ -305,6 +336,11 @@ export async function buildToolSystemPrompt(additionalContext = "", userPrompt =
     `- If you find something interesting or unexpected, mention it`,
   ];
 
+  // Inject SOUL.md identity
+  if (identitySection) {
+    parts.push(identitySection);
+  }
+
   // Inject RAG knowledge
   if (ragSection) {
     parts.push(ragSection);
@@ -404,6 +440,7 @@ async function callOllama(messages, model, temperature) {
  * @param {number} [opts.maxToolCalls] - Max total tool calls (default: 25)
  * @param {number} [opts.timeoutMs] - Total timeout (default: 120000)
  * @param {string} [opts.cwd] - Working directory for tools
+ * @param {Array<{role: string, content: string}>} [opts.history] - Conversation history to prepend
  *
  * @returns {Promise<{response, toolCalls, iterations, totalDurationMs, trace, finishReason}>}
  */
@@ -417,6 +454,7 @@ export async function runToolLoop(opts) {
     maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     cwd,
+    history,
   } = opts;
 
   const startTime = Date.now();
@@ -425,10 +463,9 @@ export async function runToolLoop(opts) {
 
   // Build messages (with RAG context from user prompt)
   const systemText = await buildToolSystemPrompt(systemPrompt, prompt);
-  const messages = [
-    { role: "system", content: systemText },
-    { role: "user", content: prompt },
-  ];
+  const messages = [{ role: "system", content: systemText }];
+  if (history?.length > 0) messages.push(...history);
+  messages.push({ role: "user", content: prompt });
 
   // Trace collection
   const trace = {
@@ -439,7 +476,6 @@ export async function runToolLoop(opts) {
   let totalToolCalls = 0;
   let finalResponse = "";
   let finishReason = "complete";
-  let nudged = false;
 
   for (let i = 0; i < maxIterations; i++) {
     trace.iterations = i + 1;
@@ -468,15 +504,8 @@ export async function runToolLoop(opts) {
     // Parse for tool calls
     const { reasoning, toolCalls } = parseToolCalls(modelOutput);
 
-    // No tool calls → nudge once on first iteration, then accept as final answer
+    // No tool calls → accept as final answer (model decided tools aren't needed)
     if (toolCalls.length === 0) {
-      if (i === 0 && !nudged) {
-        // First response with no tools — nudge the model to use them
-        nudged = true;
-        messages.push({ role: "assistant", content: modelOutput });
-        messages.push({ role: "user", content: 'You must use tools. Output a tool call like this exactly:\n\n<tool_call>\n{"name": "bash", "arguments": {"command": "ls"}}\n</tool_call>\n\nOr for reading files:\n\n<tool_call>\n{"name": "read_file", "arguments": {"path": "/path/to/file"}}\n</tool_call>\n\nDo it now.' });
-        continue;
-      }
       finalResponse = modelOutput;
       finishReason = "complete";
       break;

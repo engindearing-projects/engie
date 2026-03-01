@@ -8,7 +8,7 @@
 //   bun scripts/gateway.mjs
 //   GATEWAY_PORT=18789 bun scripts/gateway.mjs
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -21,10 +21,12 @@ import {
   invokeClaude,
   PROJECT_DIR,
 } from "./shared-invoke.mjs";
-import { Router } from "./router.mjs";
-import { runToolLoop } from "./tool-loop.mjs";
+import { Router, ROLE_HINTS } from "./router.mjs";
+import { runToolLoop, getSoulContent } from "./tool-loop.mjs";
 import { warmDaemon, warmMcpServers } from "./tools.mjs";
 import { validateResponse } from "./response-validator.mjs";
+import { estimateTokens, estimateMessages } from "./token-utils.mjs";
+import { runLongTask, findInterruptedTask } from "./task-runner.mjs";
 import {
   createSession as dbCreateSession,
   listSessions as dbListSessions,
@@ -144,7 +146,10 @@ function getSession(key) {
 function ensureSession(key) {
   let s = getSession(key);
   if (!s) {
-    s = { messages: [], lastActivity: Date.now(), claudeSessionId: null };
+    // Start fresh in-memory session. SQLite persistence is for long-term
+    // storage and explicit restore — NOT automatic hydration, because
+    // stale history from old conversations pollutes new context.
+    s = { messages: [], lastActivity: Date.now(), claudeSessionId: null, dbSessionId: null };
     sessions.set(key, s);
   }
   return s;
@@ -157,6 +162,193 @@ setInterval(() => {
     if (now - s.lastActivity > SESSION_TTL_MS) sessions.delete(key);
   }
 }, 600_000);
+
+// ── Greeting Detection ──────────────────────────────────────────────────────
+
+const GREETING_RE = /^(hi|hey|hello|yo|sup|thanks|thank\s+you|good\s+(morning|afternoon|evening|night)|what'?s?\s+up|how\s+are\s+you|how'?s?\s+it\s+going)[\s!.,?]*$/i;
+
+function isPureGreeting(msg, role, conf) {
+  return role === "chat" && conf > 0.7 && msg.length < 50 && GREETING_RE.test(msg.trim());
+}
+
+// ── Session History Helper ──────────────────────────────────────────────────
+
+const MAX_HISTORY = 10;
+
+function getSessionHistory(session) {
+  if (!session?.messages?.length) return [];
+  // Exclude the current (last) message, take the most recent MAX_HISTORY
+  return session.messages.slice(0, -1).slice(-MAX_HISTORY).map(({ role, content }) => ({ role, content }));
+}
+
+// ── RAG (lightweight, for non-tool paths) ───────────────────────────────────
+
+let _ragSearch = null;
+
+async function getLightRagContext(query) {
+  if (!_ragSearch) {
+    try {
+      const mod = await import("../brain/rag/index.mjs");
+      _ragSearch = mod.search;
+    } catch { return ""; }
+  }
+  try {
+    const results = await _ragSearch(query, 2, { minScore: 0.5 });
+    if (results.length === 0) return "";
+    return results.map(r => r.text.slice(0, 300)).join("\n---\n");
+  } catch { return ""; }
+}
+
+// ── Context Compaction ──────────────────────────────────────────────────────
+
+const HISTORY_TOKEN_BUDGET = 4000;
+
+async function compactHistory(session, model) {
+  const history = getSessionHistory(session);
+  if (!history.length) return history;
+
+  const tokens = estimateMessages(history);
+  if (tokens <= HISTORY_TOKEN_BUDGET) return history;
+
+  // Split: keep last 4 messages as-is, summarize older ones
+  const recent = history.slice(-4);
+  const older = history.slice(0, -4);
+
+  if (older.length === 0) return recent;
+
+  // If we already have a cached summary and recent fits in budget, use it
+  if (session.contextSummary) {
+    const summaryMsg = { role: "system", content: `[Previous context] ${session.contextSummary}` };
+    const combined = [summaryMsg, ...recent];
+    if (estimateMessages(combined) <= HISTORY_TOKEN_BUDGET) return combined;
+  }
+
+  // Summarize older messages via a quick LLM call
+  try {
+    const olderText = older.map(m => `${m.role}: ${m.content}`).join("\n");
+    const summary = await callOllamaDirect({
+      prompt: `Summarize this conversation so far in 2-3 sentences:\n\n${olderText}`,
+      systemPrompt: "You are a concise summarizer. Output only the summary, nothing else.",
+      model,
+      temperature: 0.3,
+    });
+    if (summary && summary.length > 10) {
+      session.contextSummary = summary.trim();
+      return [{ role: "system", content: `[Previous context] ${session.contextSummary}` }, ...recent];
+    }
+  } catch { /* summarization failed, just truncate */ }
+
+  // Fallback: just return recent messages
+  return recent;
+}
+
+// ── Session Persistence (SQLite) ────────────────────────────────────────────
+
+function persistMessage(sessionKey, role, content) {
+  try {
+    // Ensure a persistent session exists for this key
+    let session = sessions.get(sessionKey);
+    if (!session?.dbSessionId) {
+      const dbSession = dbCreateSession({ title: sessionKey.slice(0, 60) });
+      if (session) session.dbSessionId = dbSession.id;
+    }
+    const dbId = session?.dbSessionId;
+    if (dbId) {
+      dbAddMessage(dbId, { role, text: content });
+    }
+  } catch { /* persistence is best-effort */ }
+}
+
+function hydrateSession(sessionKey) {
+  // Try to restore from SQLite when in-memory session is missing
+  try {
+    const dbSessions = dbListSessions({ limit: 100 });
+    const match = dbSessions.find(s => s.title === sessionKey.slice(0, 60));
+    if (!match) return null;
+
+    const msgs = dbGetMessages(match.id, { limit: MAX_HISTORY * 2 });
+    if (!msgs?.length) return null;
+
+    const session = {
+      messages: msgs.map(m => ({ role: m.role, content: m.text, ts: new Date(m.created).getTime() })),
+      lastActivity: Date.now(),
+      claudeSessionId: null,
+      dbSessionId: match.id,
+    };
+    sessions.set(sessionKey, session);
+    return session;
+  } catch { return null; }
+}
+
+// ── Auto-Observation ────────────────────────────────────────────────────────
+
+const PREFERENCE_RE = /\b(always|never|prefer|don'?t|stop|use|switch to)\b.{5,80}/i;
+const DECISION_RE = /\b(let'?s (go with|use|do)|we'?(re|ll) (using|going|switching))\b.{5,80}/i;
+const BLOCKER_RE = /\b(blocked|waiting on|can'?t|haven'?t|hasn'?t)\b.{5,80}/i;
+
+let _memoryStore = null;
+
+async function getMemoryStore() {
+  if (_memoryStore) return _memoryStore;
+  try {
+    const mod = await import("./tools.mjs");
+    if (mod.executeTool) {
+      _memoryStore = mod.executeTool;
+      return _memoryStore;
+    }
+  } catch { /* no memory store */ }
+  return null;
+}
+
+function autoObserve(prompt, response, role) {
+  // Skip greetings and very short exchanges
+  if (isPureGreeting(prompt, role, 1.0)) return;
+  if (prompt.length < 20 && response.length < 50) return;
+
+  const observations = [];
+
+  // Check the USER's prompt for preference/decision/blocker signals
+  for (const [re, type] of [[PREFERENCE_RE, "preference"], [DECISION_RE, "decision"], [BLOCKER_RE, "blocker"]]) {
+    const match = prompt.match(re);
+    if (match) {
+      observations.push({ type, text: match[0].trim(), source: "auto-observed" });
+    }
+  }
+
+  if (observations.length === 0) return;
+
+  // Fire-and-forget: store observations via memory_store tool
+  getMemoryStore().then(exec => {
+    if (!exec) return;
+    for (const obs of observations) {
+      exec("memory_store", {
+        category: obs.type,
+        content: obs.text,
+        metadata: JSON.stringify({ source: "auto-observed", ts: new Date().toISOString() }),
+      }).catch(() => {});
+    }
+  }).catch(() => {});
+}
+
+// ── Session Quality Logging ─────────────────────────────────────────────────
+
+const QUALITY_LOG_DIR = resolve(PROJECT_DIR, "brain", "reflection");
+
+function logSessionQuality({ role, confidence, flags, toolCalls, iterations }) {
+  try {
+    if (!existsSync(QUALITY_LOG_DIR)) mkdirSync(QUALITY_LOG_DIR, { recursive: true });
+    const logPath = resolve(QUALITY_LOG_DIR, "session-quality.jsonl");
+    const record = {
+      ts: new Date().toISOString(),
+      role,
+      confidence,
+      flags,
+      toolCalls: toolCalls?.length || 0,
+      iterations: iterations || 0,
+    };
+    appendFileSync(logPath, JSON.stringify(record) + "\n");
+  } catch { /* best-effort */ }
+}
 
 // ── Memory Context Builder ───────────────────────────────────────────────────
 
@@ -191,9 +383,10 @@ function buildMemoryContext() {
 // For reasoning and chat models that don't use the tool loop.
 // Simple prompt → response via /api/generate.
 
-async function callOllamaDirect({ prompt, systemPrompt, model, temperature }) {
+async function callOllamaDirect({ prompt, systemPrompt, model, temperature, history }) {
   const messages = [];
   if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+  if (history?.length > 0) messages.push(...history);
   messages.push({ role: "user", content: prompt });
 
   const resp = await fetch("http://localhost:11434/api/chat", {
@@ -259,158 +452,104 @@ async function handleChatSend(ws, reqId, params) {
   try {
     let responseText = "";
 
-    // ── 1. Check for explicit Claude trigger ──
-    if (CLAUDE_TRIGGER.test(message)) {
-      // Strip the trigger phrase from the prompt sent to Claude
-      const cleanedPrompt = message.replace(CLAUDE_TRIGGER, "").trim() || message;
-      console.log(`[chat] session=${sessionKey.slice(0, 30)} route=claude (explicit trigger)`);
-
-      if (!claudeBin()) {
-        throw new Error("claude CLI not found");
+    // ── Detect task resume requests ──
+    const RESUME_RE = /^(continue|resume|keep going|pick up where you left off)[\s!.]*$/i;
+    let resumeTaskId = null;
+    if (RESUME_RE.test(message.trim())) {
+      const interrupted = findInterruptedTask(sessionKey);
+      if (interrupted) {
+        resumeTaskId = interrupted.id;
+        console.log(`[chat] resuming interrupted task ${resumeTaskId}`);
       }
-      const online = await checkOnline();
-      if (!online) {
-        throw new Error("Anthropic API unreachable");
-      }
+    }
 
-      const isFollowUp = !!session.claudeSessionId && session.messages.length > 2;
+    // ── Route + build system prompt ──
+    const isExplicitClaude = CLAUDE_TRIGGER.test(message);
+    const effectivePrompt = isExplicitClaude
+      ? (message.replace(CLAUDE_TRIGGER, "").trim() || message)
+      : message;
 
-      const claudeOpts = {
-        prompt: cleanedPrompt,
-        systemPrompt: isFollowUp ? undefined : FAMILIAR_SYSTEM_PREAMBLE,
+    const routeResult = await router.route({ prompt: effectivePrompt, hasCode: /```/.test(message) });
+    const { role } = routeResult;
+    const roleHint = ROLE_HINTS[role] || "";
+
+    console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} route=claude${isExplicitClaude ? " (explicit)" : ""} score=${routeResult.score?.toFixed(2)}`);
+
+    // Check Claude availability
+    if (!claudeBin()) throw new Error("claude CLI not found");
+    const online = await checkOnline();
+    if (!online) throw new Error("Anthropic API unreachable — cannot process request.");
+
+    // Build system prompt with SOUL.md + role hint + memory context
+    const soulContent = getSoulContent();
+    const memoryCtx = buildMemoryContext();
+    const systemParts = [FAMILIAR_SYSTEM_PREAMBLE];
+    if (roleHint) systemParts.push(`\n${roleHint}`);
+    if (soulContent) systemParts.push(`\n## Identity\n${soulContent.split("\n").slice(0, 15).join("\n")}`);
+    if (memoryCtx) systemParts.push(`\n${memoryCtx}`);
+    const fullSystemPrompt = systemParts.join("\n");
+
+    const responseStart = Date.now();
+
+    // Progress callback — sends intermediate updates to the client
+    const onProgress = (msg) => {
+      broadcast("chat", { runId, sessionKey, state: "progress", message: { role: "assistant", content: msg } });
+    };
+
+    // ── Run task with automatic continuation ──
+    const taskResult = await runLongTask({
+      prompt: effectivePrompt,
+      systemPrompt: fullSystemPrompt,
+      claudeOpts: {
         outputFormat: "json",
+        permissionMode: "bypassPermissions",
         disallowedTools: ENGIE_DISALLOWED_TOOLS,
         maxTurns: FAMILIAR_MAX_TURNS,
         addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
         timeoutMs: FAMILIAR_TIMEOUT_MS,
         mcpConfig: FAMILIAR_MCP_CONFIG,
-        resumeSession: isFollowUp ? session.claudeSessionId : undefined,
-      };
+      },
+      session,
+      limiter: claudeLimiter,
+      sessionKey,
+      onProgress,
+      resumeTaskId,
+    });
 
-      const result = await invokeClaude(claudeOpts, claudeLimiter);
+    responseText = taskResult.text;
+    const responseDurationMs = Date.now() - responseStart;
 
-      if (result.session_id) {
-        session.claudeSessionId = result.session_id;
-      }
-
-      responseText = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
-
-      broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
-
-      // Collect training pair
-      getCollector().then((c) => {
-        if (c) c.collectPair({ prompt: message, routedTo: "claude", primaryResponse: responseText, primaryDurationMs: result.duration_ms });
-      }).catch(() => {});
-
+    if (taskResult.continuations > 0) {
+      console.log(`[chat] long task done: ${taskResult.continuations} continuations, ${taskResult.totalTurns} turns, $${(taskResult.totalCost || 0).toFixed(4)}`);
     } else {
-      // ── 2. Route locally via classifier ──
-      const routeResult = await router.route({
-        prompt: message,
-        hasCode: /```/.test(message),
-      });
-
-      const { role, model, systemPrompt, temperature, ollamaAvailable, backend } = routeResult;
-      console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} model=${model} backend=${backend} score=${routeResult.score?.toFixed(2)}`);
-
-      // ── 3. If Ollama is down (e.g. during training), fall back to Claude ──
-      if (backend === "claude" || !ollamaAvailable) {
-        const online = await checkOnline();
-        if (!online) {
-          throw new Error("Both Ollama and Anthropic API unavailable — cannot process request.");
-        }
-        console.log(`[chat] Ollama unavailable, falling back to Claude`);
-        const isFollowUp = !!session.claudeSessionId && session.messages.length > 2;
-        const claudeOpts = {
-          prompt: message,
-          systemPrompt: isFollowUp ? undefined : FAMILIAR_SYSTEM_PREAMBLE,
-          outputFormat: "json",
-          maxTurns: FAMILIAR_MAX_TURNS,
-          addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
-          timeoutMs: FAMILIAR_TIMEOUT_MS,
-          mcpConfig: FAMILIAR_MCP_CONFIG,
-          resumeSession: isFollowUp ? session.claudeSessionId : undefined,
-        };
-        const result = await invokeClaude(claudeOpts, claudeLimiter);
-        if (result.session_id) session.claudeSessionId = result.session_id;
-        responseText = typeof result.result === "string" ? result.result : JSON.stringify(result.result);
-        broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
-
-        session.messages.push({ role: "assistant", content: responseText, ts: Date.now() });
-        broadcast("chat", { runId, sessionKey, state: "final", message: { role: "assistant", content: responseText } });
-        return;
-      }
-
-      // ── 4. Inject memory context only for reasoning (coding/tools have their own system prompt, chat doesn't need it) ──
-      const memoryCtx = role === "reasoning" ? buildMemoryContext() : "";
-      const fullSystemPrompt = memoryCtx
-        ? `${systemPrompt}\n\nBelow is background reference about projects and repos. Use it to inform your answers but do not summarize or repeat it.\n\n${memoryCtx}`
-        : systemPrompt;
-
-      // ── 5. Branch on role ──
-      const responseStart = Date.now();
-      let loopResult = null;
-
-      if (role === "coding" || role === "tools") {
-        // Tool loop for coding and tools — model gets tool schemas and can call them
-        loopResult = await runToolLoop({
-          prompt: message,
-          systemPrompt: fullSystemPrompt,
-          model,
-          temperature,
-          maxIterations: 10,
-          maxToolCalls: 25,
-          timeoutMs: 120_000,
-        });
-
-        responseText = loopResult.response || "(no response)";
-        console.log(`[chat] ollama tool-loop done: role=${role} ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, model=${model}`);
-      } else {
-        // Direct call for chat and reasoning — no tool loop, no nudging
-        responseText = await callOllamaDirect({
-          prompt: message,
-          systemPrompt: fullSystemPrompt,
-          model,
-          temperature,
-        });
-        responseText = responseText || "(no response)";
-        console.log(`[chat] ollama direct done: role=${role} model=${model}`);
-      }
-
-      // Validate response quality before broadcasting
-      const validation = validateResponse({
-        text: responseText,
-        prompt: message,
-        role,
-        finishReason: loopResult?.finishReason || "complete",
-        toolCalls: loopResult?.toolCalls || [],
-      });
-
-      if (!validation.pass) {
-        console.warn(`[chat] response failed validation: ${validation.flags.join(", ")} (confidence: ${validation.confidence.toFixed(2)})`);
-        responseText = "I couldn't generate a reliable response. Please try rephrasing or say 'use claude' for the heavy brain.";
-      } else if (validation.confidence < 0.7) {
-        console.warn(`[chat] low confidence response: ${validation.flags.join(", ")} (${validation.confidence.toFixed(2)})`);
-        responseText = `[Low confidence] ${responseText}`;
-      }
-
-      // Fire Forge collector with actual response and model
-      const responseDurationMs = Date.now() - responseStart;
-      getCollector().then((c) => {
-        if (c) c.collectPair({
-          prompt: message,
-          routedTo: "ollama",
-          complexityScore: routeResult.score,
-          primaryResponse: responseText,
-          primaryModel: model,
-          primaryDurationMs: responseDurationMs,
-        });
-      }).catch(() => {});
-
-      broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText, quality: { pass: validation.pass, confidence: validation.confidence, flags: validation.flags } } });
+      console.log(`[chat] claude done: role=${role} duration=${responseDurationMs}ms`);
     }
+
+    // Log session quality
+    logSessionQuality({ role, confidence: 1.0, flags: [], toolCalls: null, iterations: 0 });
+
+    // Fire Forge collector — every Claude response is training data
+    getCollector().then((c) => {
+      if (c) c.collectPair({
+        prompt: message,
+        routedTo: "claude",
+        complexityScore: routeResult.score,
+        primaryResponse: responseText,
+        primaryDurationMs: responseDurationMs,
+      });
+    }).catch(() => {});
+
+    broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
 
     // Store assistant message
     session.messages.push({ role: "assistant", content: responseText, ts: Date.now() });
+
+    // Persist to SQLite (fire-and-forget)
+    persistMessage(sessionKey, "user", message);
+    persistMessage(sessionKey, "assistant", responseText);
+
+    // Auto-observe preferences, decisions, blockers (fire-and-forget)
+    autoObserve(message, responseText, "chat");
 
     // Broadcast final
     broadcast("chat", {
@@ -712,17 +851,19 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 // ── Startup Banner ──────────────────────────────────────────────────────────
 
 const bin = claudeBin();
-console.log(`Familiar Gateway v1.1.0 (Single Brain Architecture)`);
+console.log(`Familiar Gateway v2.1.0 (Claude-First Architecture)`);
 console.log(`  listening:    ${hostname}:${PORT}`);
 console.log(`  config:       ${configPath || "none"}`);
 console.log(`  sessions TTL: ${SESSION_TTL_MS / 60000} min`);
+console.log(`  persistence:  SQLite (survives restarts)`);
+console.log(`  claude:       ${bin ? "available" : "NOT FOUND"}`);
 console.log("");
-console.log("Model routing (single brain, role-based dispatch):");
-console.log("  coding/tools → familiar-brain:latest (tool loop)");
-console.log("  chat/reason  → familiar-brain:latest (direct)");
-console.log(`  claude → explicit trigger only (${bin ? "available" : "NOT FOUND"})`);
+console.log("Routing: ALL requests → Claude (via subscription)");
+console.log("  SOUL.md personality + memory context injected");
+console.log("  Multi-turn sessions with Claude session resume");
+console.log("  Every response feeds Forge training pipeline");
 console.log("");
-console.log("Claude trigger phrases: ask claude, @claude, use claude, hey claude");
+console.log("Features: session persistence, auto-observe, quality logging, Forge collection");
 console.log("");
 
 // Pre-warm the daemon connection so tool schemas are ready for first request

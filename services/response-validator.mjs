@@ -108,9 +108,21 @@ const ACTION_PATTERNS = [
   /\b(battery|disk|memory|cpu|process|port)\b.*\b(level|usage|status|info)\b/i,
 ];
 
+// Knowledge questions that can be answered without tools
+const KNOWLEDGE_PATTERNS = [
+  /^(how do (i|you|we)|how to|how can (i|you|we))\b/i,
+  /^(what is|what are|what'?s)\b/i,
+  /^(explain|describe|tell me about|why does|why is|why do)\b/i,
+  /^(can (i|you|we)|should (i|we)|is it possible)\b/i,
+  /^(what'?s? the (difference|best|right))\b/i,
+];
+
 function detectToolAvoidance(role, toolCalls, prompt) {
   if (role !== "coding" && role !== "tools") return false;
   if (!toolCalls || toolCalls.length > 0) return false;
+
+  // Don't flag knowledge questions — these can be answered without tools
+  if (KNOWLEDGE_PATTERNS.some((p) => p.test(prompt.trim()))) return false;
 
   // Check if prompt asks for an action that requires tools
   return ACTION_PATTERNS.some((p) => p.test(prompt));
@@ -154,10 +166,13 @@ export function validateResponse(opts) {
     score -= 0.4;
   }
 
-  // 3. Empty or stub response
+  // 3. Empty or stub response (skip for chat role with short prompts — greetings are naturally short)
   if (!text || text.trim().length < 30) {
-    flags.push("empty_or_stub");
-    score -= 0.6;
+    const isGreetingResponse = role === "chat" && prompt.trim().length < 50;
+    if (!isGreetingResponse) {
+      flags.push("empty_or_stub");
+      score -= 0.6;
+    }
   }
 
   // 4. Tool avoidance: role=coding/tools, 0 tool calls, prompt asks for action
