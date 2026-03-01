@@ -855,6 +855,108 @@ function handleTriggerRemove(ws, id, params) {
   });
 }
 
+// ── Workflows (Dependency Graph Task Chaining) ──────────────────────────────
+
+function handleWorkflowRun(ws, id, params) {
+  (async () => {
+    try {
+      const { loadWorkflow, startWorkflow, executeWorkflow } = await import("../brain/workflows/engine.mjs");
+
+      let definition;
+      if (params.definition) {
+        definition = params.definition;
+      } else if (params.file) {
+        const loaded = loadWorkflow(params.file);
+        if (!loaded.ok) {
+          return sendTo(ws, { type: "res", id, ok: false, error: { message: loaded.error } });
+        }
+        definition = loaded.definition;
+      } else {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: "Provide 'file' or 'definition'" } });
+      }
+
+      const dryRun = params.dryRun || false;
+
+      const { runId, workflow } = startWorkflow(definition, {
+        dryRun,
+        onStep: (event) => {
+          broadcast("workflow.step", { runId, workflow, ...event });
+        },
+      });
+
+      sendTo(ws, { type: "res", id, ok: true, payload: { started: true, runId, workflow } });
+
+      const { getWorkflowStatus } = await import("../brain/workflows/engine.mjs");
+      const checkDone = setInterval(() => {
+        const status = getWorkflowStatus(runId);
+        if (status && status.status !== "running") {
+          clearInterval(checkDone);
+          broadcast("workflow.complete", { runId, workflow, ok: status.result?.ok, duration: status.duration });
+        }
+      }, 2000);
+
+      setTimeout(() => clearInterval(checkDone), (definition.timeout || 7200) * 1000 + 30000);
+
+    } catch (err) {
+      sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+    }
+  })();
+}
+
+function handleWorkflowStatus(ws, id, params) {
+  (async () => {
+    try {
+      const { getWorkflowStatus } = await import("../brain/workflows/engine.mjs");
+      const status = getWorkflowStatus(params.runId || null);
+      if (status === null) {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: `Workflow run "${params.runId}" not found` } });
+      }
+      sendTo(ws, { type: "res", id, ok: true, payload: Array.isArray(status) ? { workflows: status } : status });
+    } catch (err) {
+      sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+    }
+  })();
+}
+
+function handleWorkflowList(ws, id) {
+  (async () => {
+    try {
+      const { listWorkflows } = await import("../brain/workflows/engine.mjs");
+      const workflows = listWorkflows();
+      sendTo(ws, { type: "res", id, ok: true, payload: { workflows } });
+    } catch (err) {
+      sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+    }
+  })();
+}
+
+function handleWorkflowValidate(ws, id, params) {
+  (async () => {
+    try {
+      const { validateWorkflow } = await import("../brain/workflows/schema.mjs");
+      const { loadWorkflow } = await import("../brain/workflows/engine.mjs");
+
+      let definition;
+      if (params.definition) {
+        definition = params.definition;
+      } else if (params.file) {
+        const loaded = loadWorkflow(params.file);
+        if (!loaded.ok) {
+          return sendTo(ws, { type: "res", id, ok: false, error: { message: loaded.error } });
+        }
+        definition = loaded.definition;
+      } else {
+        return sendTo(ws, { type: "res", id, ok: false, error: { message: "Provide 'file' or 'definition'" } });
+      }
+
+      const result = validateWorkflow(definition);
+      sendTo(ws, { type: "res", id, ok: result.valid, payload: result.valid ? { valid: true, steps: definition.steps.length } : { valid: false, errors: result.errors } });
+    } catch (err) {
+      sendTo(ws, { type: "res", id, ok: false, error: { message: err.message } });
+    }
+  })();
+}
+
 // ── Request Dispatch ────────────────────────────────────────────────────────
 
 function handleRequest(ws, msg) {
@@ -1058,6 +1160,27 @@ function handleRequest(ws, msg) {
 
     case "trigger.remove": {
       handleTriggerRemove(ws, id, params);
+      return;
+    }
+
+    // ── Workflows (Task Chaining Engine) ──
+    case "workflow.run": {
+      handleWorkflowRun(ws, id, params);
+      return;
+    }
+
+    case "workflow.status": {
+      handleWorkflowStatus(ws, id, params);
+      return;
+    }
+
+    case "workflow.list": {
+      handleWorkflowList(ws, id);
+      return;
+    }
+
+    case "workflow.validate": {
+      handleWorkflowValidate(ws, id, params);
       return;
     }
 

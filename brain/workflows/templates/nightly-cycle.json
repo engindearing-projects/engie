@@ -1,0 +1,73 @@
+{
+  "name": "nightly-cycle",
+  "description": "Full nightly pipeline — mine data, check threshold, train model, learn from conversations, research next capability",
+  "version": "1.0.0",
+  "timeout": 14400,
+
+  "steps": [
+    {
+      "id": "mine-data",
+      "type": "hand",
+      "hand": "forge-miner",
+      "timeout": 7200,
+      "onError": "skip",
+      "retries": 1
+    },
+    {
+      "id": "check-training-data",
+      "type": "task",
+      "command": "bun -e 'import { getForgeStats } from \"/Users/grantjwylie/engie/trainer/forge-db.js\"; const s = getForgeStats(); console.log(JSON.stringify({ unusedPairs: s.unusedPairs || 0, totalPairs: s.totalPairs || 0, ready: (s.unusedPairs || 0) >= 50 }));'",
+      "depends": ["mine-data"],
+      "timeout": 30,
+      "onError": "skip"
+    },
+    {
+      "id": "should-train",
+      "type": "condition",
+      "check": "check-training-data.ok == true",
+      "then": "train-model",
+      "else": "skip-training-log",
+      "depends": ["check-training-data"]
+    },
+    {
+      "id": "train-model",
+      "type": "hand",
+      "hand": "forge-trainer",
+      "depends": ["should-train"],
+      "timeout": 10800,
+      "onError": "skip"
+    },
+    {
+      "id": "skip-training-log",
+      "type": "task",
+      "command": "echo 'Training skipped — not enough unused pairs'",
+      "depends": ["should-train"],
+      "timeout": 5,
+      "onError": "skip"
+    },
+    {
+      "id": "learn",
+      "type": "hand",
+      "hand": "learner",
+      "depends": ["mine-data"],
+      "timeout": 600,
+      "onError": "skip"
+    },
+    {
+      "id": "research",
+      "type": "hand",
+      "hand": "researcher",
+      "depends": ["learn"],
+      "timeout": 3600,
+      "onError": "skip"
+    },
+    {
+      "id": "summary",
+      "type": "task",
+      "command": "echo 'Nightly cycle complete. Mining: ${mine-data}, Training: ${train-model}, Learning: ${learn}, Research: ${research}'",
+      "depends": ["train-model", "skip-training-log", "research"],
+      "timeout": 10,
+      "onError": "skip"
+    }
+  ]
+}
