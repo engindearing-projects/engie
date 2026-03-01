@@ -686,49 +686,54 @@ export function WizardApp() {
     }
 
     const repoRoot = resolve(__dirname, "../../..");
-    const steps = [];
 
-    // Step 1: Pull nomic-embed-text if ollama is available
-    if (dataRef.current.ollamaFound) {
-      updateStep("brain_bootstrap", { status: "active", detail: "pulling embedding model..." });
-      const pullResult = tryExec("ollama pull nomic-embed-text", { timeout: 300000 });
-      if (pullResult !== null) {
-        steps.push("embeddings");
+    // Run async so execSync calls don't block the Ink render loop
+    const runAsync = async () => {
+      const completed = [];
+
+      // Step 1: Pull nomic-embed-text if ollama is available
+      if (dataRef.current.ollamaFound) {
+        updateStep("brain_bootstrap", { status: "active", detail: "pulling embedding model..." });
+        // Yield to let Ink render before blocking
+        await new Promise((r) => setTimeout(r, 50));
+        const pullResult = tryExec("ollama pull nomic-embed-text", { timeout: 300000 });
+        if (pullResult !== null) completed.push("embeddings");
       }
-    }
 
-    // Step 2: Seed RAG database
-    const ingestScript = resolve(repoRoot, "brain", "rag", "ingest.mjs");
-    if (existsSync(ingestScript)) {
-      updateStep("brain_bootstrap", { status: "active", detail: "seeding knowledge base..." });
-      const ingestResult = tryExec(`bun "${ingestScript}"`, {
-        timeout: 120000,
-        cwd: repoRoot,
-      });
-      if (ingestResult !== null) {
-        steps.push("RAG");
+      // Step 2: Seed RAG database
+      const ingestScript = resolve(repoRoot, "brain", "rag", "ingest.mjs");
+      if (existsSync(ingestScript)) {
+        updateStep("brain_bootstrap", { status: "active", detail: "seeding knowledge base..." });
+        await new Promise((r) => setTimeout(r, 50));
+        const ingestResult = tryExec(`bun "${ingestScript}"`, {
+          timeout: 120000,
+          cwd: repoRoot,
+        });
+        if (ingestResult !== null) completed.push("RAG");
       }
-    }
 
-    // Step 3: Run first learning cycle
-    const learnerScript = resolve(repoRoot, "brain", "learner.mjs");
-    if (existsSync(learnerScript) && dataRef.current.ollamaFound) {
-      updateStep("brain_bootstrap", { status: "active", detail: "first learning cycle..." });
-      const learnResult = tryExec(`bun "${learnerScript}"`, {
-        timeout: 180000,
-        cwd: repoRoot,
-      });
-      if (learnResult !== null) {
-        steps.push("learner");
+      // Step 3: Run first learning cycle
+      const learnerScript = resolve(repoRoot, "brain", "learner.mjs");
+      if (existsSync(learnerScript) && dataRef.current.ollamaFound) {
+        updateStep("brain_bootstrap", { status: "active", detail: "first learning cycle..." });
+        await new Promise((r) => setTimeout(r, 50));
+        const learnResult = tryExec(`bun "${learnerScript}"`, {
+          timeout: 180000,
+          cwd: repoRoot,
+        });
+        if (learnResult !== null) completed.push("learner");
       }
-    }
 
-    if (steps.length > 0) {
-      completeStep("brain_bootstrap", steps.join(" + "));
-    } else {
-      skipStep("brain_bootstrap", "nothing to bootstrap (ok)");
-    }
-    advanceToNext();
+      if (completed.length > 0) {
+        completeStep("brain_bootstrap", completed.join(" + "));
+      } else {
+        skipStep("brain_bootstrap", "nothing to bootstrap (ok)");
+      }
+      advanceToNext();
+    };
+
+    // Defer to let pending state updates flush before blocking calls
+    setTimeout(() => runAsync(), 100);
   }
 
   // Profile step callbacks

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { evaluateTriggers } from "../../../shared/trigger-cascade.js";
+import { evaluateTriggers } from "../../../../shared/trigger-cascade.js";
 
 const DELAY_MS = 3000;
 const MAX_DEPTH = 3;
