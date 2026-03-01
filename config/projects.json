@@ -1,0 +1,40 @@
+{
+  "projects": [
+    {
+      "name": "patient-portal",
+      "dir": "~/marek-patient-portal",
+      "aliases": ["patient portal", "portal", "marek patient portal"],
+      "jiraPrefix": "PORT"
+    },
+    {
+      "name": "hos-portal-api",
+      "dir": "~/hos-portal-api",
+      "aliases": ["portal api", "clinical api", "hos portal api"],
+      "jiraPrefix": "PORT"
+    },
+    {
+      "name": "hos-core-ui",
+      "dir": "~/hos-core-ui",
+      "aliases": ["core ui", "dashboard", "hos core", "core dashboard"],
+      "jiraPrefix": "MMA"
+    },
+    {
+      "name": "service-reports",
+      "dir": "~/service-reports",
+      "aliases": ["reports", "service reports", "lambda reports"],
+      "jiraPrefix": "MMA"
+    },
+    {
+      "name": "devops",
+      "dir": "~/devops",
+      "aliases": ["devops", "terraform", "infrastructure", "infra", "helm"],
+      "jiraPrefix": "AD"
+    },
+    {
+      "name": "familiar",
+      "dir": "~/engie",
+      "aliases": ["familiar", "engie", "gateway", "telegram bridge", "daemon", "forge"]
+    }
+  ],
+  "defaultDir": "~/engie"
+}

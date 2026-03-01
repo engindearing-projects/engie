@@ -28,6 +28,7 @@ import { validateResponse } from "./response-validator.mjs";
 import { estimateTokens, estimateMessages } from "./token-utils.mjs";
 import { runLongTask, findInterruptedTask } from "./task-runner.mjs";
 import { getSessionManager } from "./claude-sessions.mjs";
+import { resolveProject } from "./project-resolver.mjs";
 import {
   createSession as dbCreateSession,
   listSessions as dbListSessions,
@@ -477,6 +478,53 @@ async function handleChatSend(ws, reqId, params) {
     const roleHint = ROLE_HINTS[role] || "";
 
     console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} route=${routeResult.backend}${isExplicitClaude ? " (explicit)" : ""} score=${routeResult.score?.toFixed(2)}`);
+
+    // ── Auto-route to Claude terminal session for heavy coding tasks ──
+    if (role === "coding" && routeResult.score >= 0.7) {
+      const manager = getSessionManager();
+
+      // Check for an existing active session for this sessionKey
+      let activeSession = null;
+      for (const [name, sess] of manager.sessions) {
+        if (name.startsWith(`gw-${sessionKey.slice(0, 20)}`) && sess.status === "active") {
+          activeSession = name;
+          break;
+        }
+      }
+
+      if (activeSession) {
+        // Forward to existing session
+        try {
+          await manager.sendMessage(activeSession, effectivePrompt);
+          console.log(`[chat] routed to active Claude session: ${activeSession}`);
+          sendTo(ws, { type: "res", id: reqId, ok: true, payload: { runId } });
+          broadcast("chat", { runId, sessionKey, state: "progress", message: { role: "assistant", content: `Sent to Claude session (${activeSession})...` } });
+          return;
+        } catch (err) {
+          console.log(`[chat] session forward failed: ${err.message}, falling through to normal flow`);
+        }
+      } else {
+        // Try to auto-start a session for the resolved project
+        const match = resolveProject(effectivePrompt);
+        if (match && match.confidence >= 0.6) {
+          const sessionName = `gw-${sessionKey.slice(0, 20)}-${Date.now().toString(36)}`;
+          try {
+            await manager.startSession(sessionName, match.dir, effectivePrompt);
+            manager.onOutput(sessionName, (name, delta) => {
+              broadcast("claude.output", { name, delta });
+            });
+            console.log(`[chat] auto-started Claude session: ${sessionName} in ${match.dir}`);
+            broadcast("chat", { runId, sessionKey, state: "progress", message: { role: "assistant", content: `Starting Claude in ${match.name} (${match.dir})...` } });
+            // Don't return yet — the session will stream output via claude.output events
+            // But we do need to send the final event eventually
+            broadcast("chat", { runId, sessionKey, state: "final", message: { role: "assistant", content: `Claude session started for ${match.name}. Output streaming via claude.output events.` } });
+            return;
+          } catch (err) {
+            console.log(`[chat] auto-start failed: ${err.message}, falling through to normal flow`);
+          }
+        }
+      }
+    }
 
     // Build system prompt with SOUL.md + role hint + memory context
     const soulContent = getSoulContent();

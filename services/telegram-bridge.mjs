@@ -20,6 +20,7 @@ import { answerCallbackQuery as answerCb, updateApprovalMessage } from "./daemon
 import { Router } from "./router.mjs";
 import { runToolLoop } from "./tool-loop.mjs";
 import { validateResponse } from "./response-validator.mjs";
+import { resolveProject, listProjects } from "./project-resolver.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = resolve(__dirname, "..");
@@ -1337,11 +1338,11 @@ async function handleTelegramMessage(msg) {
     const help = [
       "Telegram Bridge Help",
       "",
-      "Claude Code sessions:",
-      "/claude start <dir> [prompt] — start interactive Claude session",
-      "/claude send <message> — send to active Claude session",
-      "/claude stop — close active Claude session",
+      "Claude Code sessions (auto-detected from coding messages):",
+      "/claude start <dir> [prompt] — manual start",
+      "/claude stop — close active session",
       "/claude status — list active sessions",
+      "/chat — switch back to Familiar (session keeps running)",
       "",
       "Terminal sessions:",
       "/term claude | /term codex | /term engie | /term ollama",
@@ -1386,6 +1387,18 @@ async function handleTelegramMessage(msg) {
         await tgSend(chatId, `Unknown /claude subcommand: ${claudeCmd.subcommand}\nUse: start, send, stop, status`);
         return;
     }
+  }
+
+  // /chat — detach from active Claude session, route to Familiar
+  if (/^\/chat$/i.test(text)) {
+    const detached = claudeSessions.get(String(chatId));
+    if (detached) {
+      claudeSessions.delete(String(chatId));
+      await tgSend(chatId, `Detached from Claude session (still running: ${detached}).\nMessages now go to Familiar. Use /claude status to check on it.`);
+    } else {
+      await tgSend(chatId, "Already in chat mode (no active Claude session).");
+    }
+    return;
   }
 
   // Terminal commands
@@ -1491,18 +1504,54 @@ async function handleTelegramMessage(msg) {
     return;
   }
 
-  // If there's an active Claude terminal session, forward coding messages to it
+  // If there's an active Claude terminal session, forward ALL messages to it.
+  // The user is in a conversation with Claude — "yes", "looks good", "try again"
+  // are all valid replies. Use /chat to detach.
   const activeClaudeSession = claudeSessions.get(String(chatId));
-  if (activeClaudeSession && isCodingPrompt(text)) {
+  if (activeClaudeSession) {
     try {
       await ensureGateway();
       await request("claude.send", { name: activeClaudeSession, message: text }, 15000);
       logActivity("telegram-bridge", "user", `[→claude] ${text}`, sessionKeyForChat(chatId));
       return;
     } catch (err) {
-      // Session may have ended — fall through to normal chat
+      // Session may have ended — clean up and fall through
       console.log(`[claude-tg] forward failed, session may be gone: ${err.message}`);
       claudeSessions.delete(String(chatId));
+      stopClaudeOutputListener(activeClaudeSession);
+      await tgSend(chatId, "Claude session ended. Switching back to Familiar.");
+    }
+  }
+
+  // Auto-detect coding tasks and spawn a Claude session
+  if (isCodingPrompt(text) && isHardPrompt(text)) {
+    const match = resolveProject(text);
+    if (match && match.confidence >= 0.5) {
+      // Auto-start a Claude session for the resolved project
+      const sessionName = `tg-claude-${chatId}-${Date.now().toString(36)}`;
+      try {
+        await ensureGateway();
+        await request("claude.start", {
+          name: sessionName,
+          projectDir: match.dir,
+          initialPrompt: text,
+        }, 30000);
+
+        claudeSessions.set(String(chatId), sessionName);
+        startClaudeOutputListener(chatId, sessionName);
+        await tgSend(chatId, `Starting Claude in ${match.name} (${match.dir})...\nUse /chat to switch back to Familiar.`);
+        logActivity("telegram-bridge", "user", `[auto→claude:${match.name}] ${text}`, sessionKeyForChat(chatId));
+        return;
+      } catch (err) {
+        console.log(`[claude-tg] auto-start failed: ${err.message}`);
+        // Fall through to normal chat
+      }
+    } else if (!match) {
+      // Clearly a coding task but can't figure out which project
+      const projects = listProjects();
+      const projectList = projects.map((p) => `- ${p.name} (${p.dir})`).join("\n");
+      await tgSend(chatId, `That looks like a coding task but I'm not sure which project.\nUse /claude start <dir> or mention the project name.\n\nKnown projects:\n${projectList}`);
+      return;
     }
   }
 
