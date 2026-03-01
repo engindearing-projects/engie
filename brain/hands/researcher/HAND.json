@@ -11,6 +11,14 @@
     "maxDuration": 3600
   },
 
+  "triggers": [
+    {
+      "type": "hand_complete",
+      "hand": "forge-trainer",
+      "onlyOnSuccess": true
+    }
+  ],
+
   "tools": ["bash", "read_file", "write_file", "edit_file", "grep", "glob"],
 
   "phases": [

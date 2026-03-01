@@ -799,6 +799,62 @@ function handleHandMetrics(ws, id) {
   });
 }
 
+// ── Triggers (Event-Driven Hand Activation) ─────────────────────────────────
+
+let _triggerManager = null;
+let _eventBus = null;
+
+async function getTriggerManager() {
+  if (_triggerManager) return _triggerManager;
+  try {
+    const reg = await getHandRegistry();
+    if (!reg) return null;
+    const { EventBus, TriggerManager } = await import("../brain/hands/triggers.mjs");
+    _eventBus = new EventBus();
+    _triggerManager = new TriggerManager(_eventBus, reg);
+    _triggerManager.loadFromManifests();
+    _triggerManager.start();
+    return _triggerManager;
+  } catch (err) {
+    console.error("[triggers] Failed to load trigger manager:", err.message);
+    return null;
+  }
+}
+
+function handleTriggerList(ws, id) {
+  getTriggerManager().then(mgr => {
+    if (!mgr) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Trigger system unavailable" } });
+    const triggers = mgr.listTriggers();
+    sendTo(ws, { type: "res", id, ok: true, payload: { triggers } });
+  });
+}
+
+function handleTriggerRegister(ws, id, params) {
+  getTriggerManager().then(mgr => {
+    if (!mgr) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Trigger system unavailable" } });
+    if (!params.hand || !params.trigger) {
+      return sendTo(ws, { type: "res", id, ok: false, error: { message: "Requires 'hand' and 'trigger' params" } });
+    }
+    const result = mgr.registerTrigger(params.hand, params.trigger);
+    if (result.ok) {
+      sendTo(ws, { type: "res", id, ok: true, payload: { registered: true, hand: params.hand, key: result.key } });
+    } else {
+      sendTo(ws, { type: "res", id, ok: false, error: { message: result.error } });
+    }
+  });
+}
+
+function handleTriggerRemove(ws, id, params) {
+  getTriggerManager().then(mgr => {
+    if (!mgr) return sendTo(ws, { type: "res", id, ok: false, error: { message: "Trigger system unavailable" } });
+    if (!params.hand) {
+      return sendTo(ws, { type: "res", id, ok: false, error: { message: "Requires 'hand' param" } });
+    }
+    const result = mgr.removeTrigger(params.hand, params.type);
+    sendTo(ws, { type: "res", id, ok: true, payload: { removed: result.removed } });
+  });
+}
+
 // ── Request Dispatch ────────────────────────────────────────────────────────
 
 function handleRequest(ws, msg) {
@@ -986,6 +1042,22 @@ function handleRequest(ws, msg) {
 
     case "hand.metrics": {
       handleHandMetrics(ws, id);
+      return;
+    }
+
+    // ── Triggers (Event-Driven) ──
+    case "trigger.list": {
+      handleTriggerList(ws, id);
+      return;
+    }
+
+    case "trigger.register": {
+      handleTriggerRegister(ws, id, params);
+      return;
+    }
+
+    case "trigger.remove": {
+      handleTriggerRemove(ws, id, params);
       return;
     }
 

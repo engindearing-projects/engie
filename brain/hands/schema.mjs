@@ -65,6 +65,35 @@
  *     "approvalRequired": false               // needs human approval before each run?
  *   },
  *
+ *   "triggers": [                             // event-driven triggers (optional)
+ *     {
+ *       "type": "hand_complete",              // fire when another hand finishes
+ *       "hand": "forge-trainer",              // which hand to watch
+ *       "onlyOnSuccess": true                 // only fire if that hand succeeded
+ *     },
+ *     {
+ *       "type": "file_change",                // fire on filesystem changes
+ *       "paths": ["trainer/data/"],           // paths to watch (relative to project root)
+ *       "debounce": 5000,                     // ms debounce between fires
+ *       "recursive": true                     // watch subdirectories
+ *     },
+ *     {
+ *       "type": "webhook",                    // fire when HTTP endpoint is hit
+ *       "route": "/trigger/my-hand",          // URL path
+ *       "secret": "optional-secret"           // x-trigger-secret header
+ *     },
+ *     {
+ *       "type": "threshold",                  // fire when a metric crosses a value
+ *       "metric": "forge-miner.pairs_collected", // hand.metric or just metric
+ *       "above": 100,                         // fire when value >= 100
+ *       "pollInterval": 300                   // seconds between checks
+ *     },
+ *     {
+ *       "type": "schedule",                   // cron (delegates to scheduler)
+ *       "cron": "0 4 * * *"
+ *     }
+ *   ],
+ *
  *   "state": {                                // persisted between runs
  *     "lastCheckpoint": null,                 // where we left off
  *     "custom": {}                            // hand-specific state
@@ -74,6 +103,7 @@
 
 const VALID_ON_FAIL = new Set(["skip", "abort", "retry"]);
 const VALID_METRIC_TYPES = new Set(["counter", "gauge", "histogram"]);
+const VALID_TRIGGER_TYPES = new Set(["file_change", "webhook", "threshold", "hand_complete", "schedule"]);
 
 /**
  * Validate a HAND.json manifest.
@@ -130,6 +160,39 @@ export function validateManifest(manifest) {
     }
   }
 
+  // Triggers (optional)
+  if (manifest.triggers) {
+    if (!Array.isArray(manifest.triggers)) {
+      errors.push("'triggers' must be an array");
+    } else {
+      for (let i = 0; i < manifest.triggers.length; i++) {
+        const t = manifest.triggers[i];
+        if (!t.type || !VALID_TRIGGER_TYPES.has(t.type)) {
+          errors.push(`triggers[${i}]: 'type' must be one of: ${[...VALID_TRIGGER_TYPES].join(", ")}`);
+          continue;
+        }
+        if (t.type === "file_change" && (!Array.isArray(t.paths) || t.paths.length === 0)) {
+          errors.push(`triggers[${i}]: file_change requires non-empty 'paths' array`);
+        }
+        if (t.type === "webhook" && (!t.route || typeof t.route !== "string")) {
+          errors.push(`triggers[${i}]: webhook requires 'route' string`);
+        }
+        if (t.type === "threshold" && (!t.metric || typeof t.metric !== "string")) {
+          errors.push(`triggers[${i}]: threshold requires 'metric' string`);
+        }
+        if (t.type === "threshold" && t.above == null && t.below == null) {
+          errors.push(`triggers[${i}]: threshold requires 'above' or 'below' value`);
+        }
+        if (t.type === "hand_complete" && (!t.hand || typeof t.hand !== "string")) {
+          errors.push(`triggers[${i}]: hand_complete requires 'hand' string`);
+        }
+        if (t.type === "schedule" && (!t.cron || typeof t.cron !== "string")) {
+          errors.push(`triggers[${i}]: schedule requires 'cron' string`);
+        }
+      }
+    }
+  }
+
   // Guardrails
   if (manifest.guardrails) {
     if (manifest.guardrails.maxConcurrent != null && typeof manifest.guardrails.maxConcurrent !== "number") {
@@ -150,6 +213,7 @@ export function defaultManifest(name) {
     description: "",
     author: "familiar",
     schedule: null,
+    triggers: [],
     tools: [],
     phases: [],
     env: {},

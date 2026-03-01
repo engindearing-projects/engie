@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { HandRegistry } from "./registry.mjs";
 import { runHand } from "./runner.mjs";
+import { EventBus, TriggerManager } from "./triggers.mjs";
 
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
 const ONCE = process.argv.includes("--once");
@@ -140,7 +141,7 @@ const triggeredThisMinute = new Map(); // "handName:YYYY-MM-DD-HH:mm" → true
 // Track currently running hands
 const runningHands = new Set();
 
-async function tick(registry) {
+async function tick(registry, eventBus) {
   // Reload registry to pick up state changes from CLI/Telegram/gateway
   registry.load();
 
@@ -188,9 +189,22 @@ async function tick(registry) {
       .then(result => {
         const status = result.ok ? "completed" : "failed";
         console.log(`[scheduler] ${hand.name} — ${status} (${(result.duration / 1000).toFixed(0)}s)`);
+
+        // Emit hand.complete event so triggers can chain
+        if (eventBus) {
+          eventBus.emit("hand.complete", {
+            hand: hand.name,
+            ok: result.ok,
+            duration: result.duration,
+            triggeredBy: "schedule",
+          });
+        }
       })
       .catch(err => {
         console.error(`[scheduler] ${hand.name} — error: ${err.message}`);
+        if (eventBus) {
+          eventBus.emit("hand.error", { hand: hand.name, error: err.message, triggeredBy: "schedule" });
+        }
       })
       .finally(() => {
         clearTimeout(timer);
@@ -208,16 +222,26 @@ async function tick(registry) {
   }
 }
 
+// ── Exports (for gateway integration) ───────────────────────────────────────
+
+export { EventBus, TriggerManager };
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 const registry = new HandRegistry();
 registry.load();
 
+// Create event bus and trigger manager
+const eventBus = new EventBus();
+const triggerManager = new TriggerManager(eventBus, registry);
+triggerManager.loadFromManifests();
+
 const activeCount = registry.getScheduled().length;
 const totalCount = registry.list().length;
+const triggerCount = triggerManager.listTriggers().length;
 
 console.log(`[scheduler] Hands Scheduler started`);
-console.log(`[scheduler] ${totalCount} hands loaded, ${activeCount} active with schedules`);
+console.log(`[scheduler] ${totalCount} hands loaded, ${activeCount} active with schedules, ${triggerCount} trigger(s)`);
 
 if (activeCount > 0) {
   const scheduled = registry.getScheduled();
@@ -226,23 +250,33 @@ if (activeCount > 0) {
   }
 }
 
+if (triggerCount > 0) {
+  for (const t of triggerManager.listTriggers()) {
+    console.log(`[scheduler]   ${t.hand} — trigger: ${t.type}${t.def.hand ? ` (watches ${t.def.hand})` : ""}`);
+  }
+}
+
 if (ONCE) {
   console.log(`[scheduler] Running single tick...`);
-  await tick(registry);
+  await tick(registry, eventBus);
   console.log(`[scheduler] Done.`);
   process.exit(0);
 }
 
+// Start event-driven triggers
+triggerManager.start();
+
 // Initial tick
-await tick(registry);
+await tick(registry, eventBus);
 
 // Run every minute
-const interval = setInterval(() => tick(registry), TICK_INTERVAL_MS);
+const interval = setInterval(() => tick(registry, eventBus), TICK_INTERVAL_MS);
 
 // Graceful shutdown
 function shutdown(signal) {
   console.log(`[scheduler] ${signal} received, shutting down...`);
   clearInterval(interval);
+  triggerManager.stop();
 
   if (runningHands.size > 0) {
     console.log(`[scheduler] Waiting for ${runningHands.size} running hand(s): ${[...runningHands].join(", ")}`);
