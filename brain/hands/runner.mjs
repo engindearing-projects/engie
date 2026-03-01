@@ -154,10 +154,79 @@ async function executePhase(hand, phase, context) {
 }
 
 /**
- * Agentic phase — runs the full tool loop so the model can read files,
- * write code, run bash commands, grep, glob, etc.
+ * Agentic phase — can run via Claude (primary) or local tool loop (fallback).
+ *
+ * Claude mode: spawns `claude -p` with full tool access — reads files, writes
+ * code, runs bash, iterates. This is the gold standard for code generation.
+ *
+ * Local mode: uses the Ollama-based tool loop. Good enough for simple tasks,
+ * but struggles with structured tool calling at current model quality.
  */
 async function executeAgenticPhase(hand, phase, systemPrompt, timeoutMs) {
+  const startTime = Date.now();
+
+  // Try Claude first — much better at agentic tool use
+  try {
+    const result = await executeAgenticClaude(hand, phase, systemPrompt, timeoutMs);
+    if (result.status === "ok") return result;
+    console.log(`[hand:${hand.manifest.name}]   Claude unavailable (${result.error}), falling back to local`);
+  } catch (err) {
+    console.log(`[hand:${hand.manifest.name}]   Claude error (${err.message}), falling back to local`);
+  }
+
+  // Fallback to local tool loop
+  return executeAgenticLocal(hand, phase, systemPrompt, timeoutMs);
+}
+
+/** Agentic via Claude — spawns `claude -p` subprocess */
+async function executeAgenticClaude(hand, phase, systemPrompt, timeoutMs) {
+  const startTime = Date.now();
+
+  try {
+    const { invokeClaude, Semaphore } = await import("../../services/shared-invoke.mjs");
+
+    const fullPrompt = [
+      systemPrompt,
+      "",
+      "--- TASK ---",
+      phase.prompt,
+    ].join("\n");
+
+    const result = await invokeClaude({
+      prompt: fullPrompt,
+      workingDir: phase.cwd || PROJECT_DIR,
+      maxTurns: phase.maxIterations || 15,
+      timeoutMs,
+      permissionMode: "bypassPermissions",
+      outputFormat: "json",
+    });
+
+    // invokeClaude returns { success, result, cost_usd, num_turns, session_id, model, hitMaxTurns }
+    const response = typeof result.result === "string" ? result.result
+      : JSON.stringify(result.result).slice(0, 4000);
+
+    return {
+      name: phase.name,
+      status: "ok",
+      result: response,
+      toolCalls: result.num_turns || 0,
+      iterations: result.num_turns || 0,
+      cost: result.cost_usd || 0,
+      finishReason: result.hitMaxTurns ? "max_turns" : "complete",
+      duration: Date.now() - startTime,
+    };
+  } catch (err) {
+    return {
+      name: phase.name,
+      status: "error",
+      error: err.message,
+      duration: Date.now() - startTime,
+    };
+  }
+}
+
+/** Agentic via local Ollama tool loop */
+async function executeAgenticLocal(hand, phase, systemPrompt, timeoutMs) {
   const startTime = Date.now();
 
   try {
@@ -264,7 +333,10 @@ export async function runHand(registry, name, opts = {}) {
       // "skip" — just continue to next phase
     } else {
       context.previousPhases.push(result);
-      const extra = result.toolCalls ? `, ${result.toolCalls} tool calls, ${result.iterations} iterations` : "";
+      const parts = [];
+      if (result.toolCalls) parts.push(`${result.toolCalls} turns`);
+      if (result.cost) parts.push(`$${result.cost.toFixed(4)}`);
+      const extra = parts.length > 0 ? `, ${parts.join(", ")}` : "";
       console.log(`[hand:${name}]   Phase "${phase.name}" complete (${result.duration}ms${extra})`);
     }
   }
