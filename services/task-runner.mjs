@@ -215,10 +215,13 @@ export async function runLongTask({ prompt, systemPrompt, claudeOpts, session, l
             resumeSession: lastSessionId,
           }, limiter);
         } catch (resumeErr) {
-          // Session expired — start fresh with context
+          // Session expired or invalid — clear stale ID from both local and gateway
           console.log(`[task] session resume failed: ${resumeErr.message}`);
           lastSessionId = null;
+          if (session) session.claudeSessionId = null;
 
+          // Start fresh with context — wrapped in its own try/catch so failures
+          // don't bubble to the outer catch as ambiguous timeout errors
           let freshPrompt;
           if (continuation === 0 && session?.messages?.length > 1) {
             // Simple follow-up (not a continuation) — inject recent chat history
@@ -229,11 +232,17 @@ export async function runLongTask({ prompt, systemPrompt, claudeOpts, session, l
             freshPrompt = await buildContinuationPrompt(prompt, fullResult, false);
           }
 
-          result = await invokeClaude({
-            ...claudeOpts,
-            prompt: freshPrompt,
-            systemPrompt,
-          }, limiter);
+          try {
+            result = await invokeClaude({
+              ...claudeOpts,
+              prompt: freshPrompt,
+              systemPrompt,
+            }, limiter);
+          } catch (freshErr) {
+            // Fresh session also failed — let outer catch handle it,
+            // but session ID is already cleared so retry won't hit resume again
+            throw freshErr;
+          }
         }
 
       } else {
