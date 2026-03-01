@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getByType } from "../../lib/memory-db.js";
-import { getRecentItems, countByStatus } from "../../../shared/work-queue.js";
+import { getRecentItems, countByStatus } from "../../../../shared/work-queue.js";
 
 const POLL_INTERVAL = 60_000; // 60 seconds
 const FIRST_POLL_DELAY = 10_000; // 10 seconds after mount
