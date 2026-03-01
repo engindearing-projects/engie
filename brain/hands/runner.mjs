@@ -108,29 +108,79 @@ async function chat(systemPrompt, userPrompt, timeout = 90000) {
 
 // ── Phase Executor ─────────────────────────────────────────────────────────
 
-async function executePhase(hand, phase, context) {
-  const startTime = Date.now();
-  const timeoutMs = (phase.timeout || 300) * 1000;
-
-  const systemPrompt = [
+function buildPhaseSystemPrompt(hand, phase, context) {
+  return [
     `You are Familiar, an autonomous AI assistant running the "${hand.manifest.name}" hand.`,
     hand.manifest.description,
     "",
     `Current phase: ${phase.name}`,
-    `Available tools: ${(hand.manifest.tools || []).join(", ") || "none"}`,
     "",
     context.checkpoint ? `Previous checkpoint: ${JSON.stringify(context.checkpoint)}` : "",
     context.previousPhases.length > 0
       ? `Previous phase results:\n${context.previousPhases.map(p => `[${p.name}]: ${p.result?.slice(0, 500) || "no output"}`).join("\n")}`
       : "",
   ].filter(Boolean).join("\n");
+}
 
+async function executePhase(hand, phase, context) {
+  const startTime = Date.now();
+  const timeoutMs = (phase.timeout || 300) * 1000;
+  const mode = phase.mode || "chat";
+
+  const systemPrompt = buildPhaseSystemPrompt(hand, phase, context);
+
+  // Agentic mode — full tool loop with file I/O, bash, etc.
+  if (mode === "agentic") {
+    return executeAgenticPhase(hand, phase, systemPrompt, timeoutMs);
+  }
+
+  // Chat mode — single LLM call, no tools
   try {
     const result = await chat(systemPrompt, phase.prompt, timeoutMs);
     return {
       name: phase.name,
       status: "ok",
       result,
+      duration: Date.now() - startTime,
+    };
+  } catch (err) {
+    return {
+      name: phase.name,
+      status: "error",
+      error: err.message,
+      duration: Date.now() - startTime,
+    };
+  }
+}
+
+/**
+ * Agentic phase — runs the full tool loop so the model can read files,
+ * write code, run bash commands, grep, glob, etc.
+ */
+async function executeAgenticPhase(hand, phase, systemPrompt, timeoutMs) {
+  const startTime = Date.now();
+
+  try {
+    const { runToolLoop } = await import("../../services/tool-loop.mjs");
+
+    const result = await runToolLoop({
+      prompt: phase.prompt,
+      systemPrompt,
+      model: BRAIN_MODEL,
+      temperature: 0.5,
+      maxIterations: phase.maxIterations || 15,
+      maxToolCalls: phase.maxToolCalls || 30,
+      timeoutMs,
+      cwd: phase.cwd || PROJECT_DIR,
+    });
+
+    return {
+      name: phase.name,
+      status: "ok",
+      result: result.response || "",
+      toolCalls: result.toolCalls?.length || 0,
+      iterations: result.iterations || 0,
+      finishReason: result.finishReason,
       duration: Date.now() - startTime,
     };
   } catch (err) {
@@ -214,7 +264,8 @@ export async function runHand(registry, name, opts = {}) {
       // "skip" — just continue to next phase
     } else {
       context.previousPhases.push(result);
-      console.log(`[hand:${name}]   Phase "${phase.name}" complete (${result.duration}ms)`);
+      const extra = result.toolCalls ? `, ${result.toolCalls} tool calls, ${result.iterations} iterations` : "";
+      console.log(`[hand:${name}]   Phase "${phase.name}" complete (${result.duration}ms${extra})`);
     }
   }
 

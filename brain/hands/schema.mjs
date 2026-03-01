@@ -26,9 +26,13 @@
  *     {
  *       "name": "prepare",
  *       "prompt": "Check forge DB stats...",
+ *       "mode": "chat",                       // "chat" (default) | "agentic"
  *       "timeout": 60,                        // phase timeout in seconds
  *       "onFail": "skip"                      // "skip" | "abort" | "retry"
  *     },
+ *     // mode "agentic" — runs the full tool loop (bash, read_file, write_file,
+ *     // edit_file, grep, glob, etc). The model can read files, write code,
+ *     // run commands, and iterate until done or timeout.
  *     {
  *       "name": "mine",
  *       "prompt": "Run ground-truth mining...",
