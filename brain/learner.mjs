@@ -251,8 +251,48 @@ async function learn(reflection) {
     return null;
   }
 
+  // CRAAP quality check on research findings before accepting
+  let craapResult = null;
+  try {
+    const { evaluateSource } = await import("./rag/craap.mjs");
+
+    // Fetch some existing knowledge for cross-reference
+    let existingChunks = [];
+    try {
+      const { search } = await import("./rag/index.mjs");
+      existingChunks = await search(gap.gap, 5);
+    } catch { /* RAG may not be available */ }
+
+    craapResult = evaluateSource(
+      {
+        text: findings,
+        date: new Date().toISOString().slice(0, 10),
+        source: "learner-research",
+        tags: "learning,research," + (gap.gap || "").slice(0, 30),
+      },
+      {
+        context: [gap.gap],
+        existingChunks,
+      }
+    );
+
+    console.log(`[learner] CRAAP score: ${craapResult.score.toFixed(2)} -> ${craapResult.recommendation}`);
+
+    if (craapResult.recommendation === "reject") {
+      console.log(`[learner] Research findings rejected by CRAAP (score ${craapResult.score.toFixed(2)} below threshold)`);
+      console.log(`[learner] Top reasons: ${craapResult.reasons.slice(0, 3).join("; ")}`);
+      return null;
+    }
+
+    if (craapResult.recommendation === "review") {
+      console.log(`[learner] Research findings flagged for review (score ${craapResult.score.toFixed(2)})`);
+    }
+  } catch (err) {
+    console.log(`[learner] CRAAP evaluation unavailable: ${err.message}, proceeding without`);
+  }
+
   console.log(`[learner] Learned: ${findings.slice(0, 100)}...`);
-  return { gap, findings };
+  return { gap, findings, craapScore: craapResult?.score ?? null, craapRecommendation: craapResult?.recommendation ?? null };
 }
 
 // ── Step 3: INSTALL ─────────────────────────────────────────────────────────
@@ -517,7 +557,10 @@ async function main() {
   }
 
   if (results.learning) {
-    summaryParts.push(`Learned: ${results.learning.gap.gap}`);
+    const craapInfo = results.learning.craapScore != null
+      ? ` (CRAAP: ${results.learning.craapScore.toFixed(2)} ${results.learning.craapRecommendation})`
+      : "";
+    summaryParts.push(`Learned: ${results.learning.gap.gap}${craapInfo}`);
   }
 
   if (results.skill) {

@@ -374,6 +374,52 @@ function ingestBrainData(db) {
   return chunks;
 }
 
+// ── CRAAP Pre-check ─────────────────────────────────────────────────────────
+
+// Sources that skip CRAAP evaluation (internal ground truth)
+const TRUSTED_SOURCES = new Set([
+  "traces", "memory", "git", "brain-reflection",
+  "brain-ideas", "brain-improvements", "claude-memory",
+]);
+
+let _craapModule = null;
+
+async function getCraapModule() {
+  if (_craapModule) return _craapModule;
+  try {
+    _craapModule = await import("./craap.mjs");
+    return _craapModule;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run CRAAP evaluation on a chunk. Returns true if the chunk should be ingested.
+ * Trusted internal sources always pass. External sources are scored.
+ */
+async function shouldIngest(chunk) {
+  // Trusted internal sources skip evaluation
+  if (TRUSTED_SOURCES.has(chunk.source)) return { pass: true, score: null };
+
+  const craap = await getCraapModule();
+  if (!craap) return { pass: true, score: null }; // if module unavailable, allow
+
+  const result = craap.evaluateSource({
+    text: chunk.text,
+    date: chunk.date,
+    source: chunk.source,
+    source_file: chunk.source_file,
+    tags: chunk.tags,
+  });
+
+  return {
+    pass: result.recommendation !== "reject",
+    score: result.score,
+    recommendation: result.recommendation,
+  };
+}
+
 // ── Main Pipeline ───────────────────────────────────────────────────────────
 
 async function main() {
@@ -397,6 +443,29 @@ async function main() {
     return;
   }
 
+  // CRAAP pre-filter
+  const craapEnabled = !process.argv.includes("--skip-craap");
+  let rejected = 0;
+  let reviewed = 0;
+  let filteredChunks = allChunks;
+
+  if (craapEnabled) {
+    filteredChunks = [];
+    for (const chunk of allChunks) {
+      const check = await shouldIngest(chunk);
+      if (check.pass) {
+        filteredChunks.push(chunk);
+        if (check.recommendation === "review") reviewed++;
+      } else {
+        rejected++;
+      }
+    }
+
+    if (rejected > 0 || reviewed > 0) {
+      console.log(`[ingest] CRAAP filter: ${rejected} rejected, ${reviewed} flagged for review, ${filteredChunks.length} passed`);
+    }
+  }
+
   // Embed and store
   const insert = db.prepare(
     "INSERT INTO chunks (text, embedding, source, source_file, date, tags) VALUES (?, ?, ?, ?, ?, ?)"
@@ -405,7 +474,7 @@ async function main() {
   let embedded = 0;
   let errors = 0;
 
-  for (const chunk of allChunks) {
+  for (const chunk of filteredChunks) {
     try {
       const vec = await embed(chunk.text);
       insert.run(
@@ -419,7 +488,7 @@ async function main() {
       embedded++;
 
       if (embedded % 50 === 0) {
-        console.log(`[ingest] Embedded ${embedded}/${allChunks.length}...`);
+        console.log(`[ingest] Embedded ${embedded}/${filteredChunks.length}...`);
       }
     } catch (err) {
       errors++;
@@ -428,7 +497,7 @@ async function main() {
   }
 
   db.close();
-  console.log(`[ingest] Done: ${embedded} embedded, ${errors} errors`);
+  console.log(`[ingest] Done: ${embedded} embedded, ${errors} errors${rejected > 0 ? `, ${rejected} rejected by CRAAP` : ""}`);
 }
 
 main().catch(err => {
