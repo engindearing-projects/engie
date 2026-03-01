@@ -6,20 +6,13 @@
 // a launchd interval service (every 5 minutes).
 
 import { execSync } from "child_process";
-import { readFileSync, appendFileSync, mkdirSync } from "fs";
-import { resolve } from "path";
-
-const LOG_DIR = resolve(process.env.HOME || "~", ".familiar/logs");
-const LOG_FILE = resolve(LOG_DIR, "watchdog.log");
 const DOMAIN_TARGET = `gui/${process.getuid()}`;
-
-mkdirSync(LOG_DIR, { recursive: true });
 
 function log(msg) {
   const ts = new Date().toISOString();
   const line = `${ts} ${msg}`;
+  // stdout goes to the same log file via launchd — only write once
   console.log(line);
-  try { appendFileSync(LOG_FILE, line + "\n"); } catch {}
 }
 
 function exec(cmd) {
