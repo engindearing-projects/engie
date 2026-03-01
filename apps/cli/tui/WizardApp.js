@@ -448,9 +448,9 @@ export function WizardApp() {
   // Config step is multi-phase: ask for API key, then optional tokens
   function handleAnthropicKey(val) {
     const key = val.trim();
-    if (!key) {
-      // Re-prompt
-      updateStep("config", { status: "active", detail: "API key is required" });
+    if (!key && !dataRef.current.claudeFound) {
+      // No key and no Claude CLI — re-prompt, they need at least one
+      updateStep("config", { status: "active", detail: "need a key or Claude CLI subscription" });
       setPhase("ask_anthropic_key");
       return;
     }
@@ -770,11 +770,31 @@ export function WizardApp() {
 
     // Config prompts
     if (currentStep.id === "config" && (phase === "init" || phase === "ask_anthropic_key")) {
-      prompt = e(TextPrompt, {
-        question: "ANTHROPIC_API_KEY",
-        placeholder: "sk-ant-...",
-        onSubmit: handleAnthropicKey,
-      });
+      // Open the API keys page in the browser automatically
+      if (phase === "init") {
+        try { execSync("open https://console.anthropic.com/settings/keys", { stdio: "ignore" }); } catch {}
+      }
+      const hasClaude = dataRef.current.claudeFound;
+      prompt = e(Box, { flexDirection: "column" },
+        e(Box, { marginLeft: 2 },
+          e(Text, { color: colors.grayDim },
+            "Opening console.anthropic.com/settings/keys in your browser..."
+          )
+        ),
+        hasClaude
+          ? e(Box, { marginLeft: 2 },
+              e(Text, { color: colors.grayDim },
+                "(Claude CLI detected — press Enter to skip, the proxy will use your subscription)"
+              )
+            )
+          : null,
+        e(TextPrompt, {
+          question: "ANTHROPIC_API_KEY",
+          placeholder: "sk-ant-...",
+          optional: hasClaude,
+          onSubmit: handleAnthropicKey,
+        })
+      );
     }
 
     if (currentStep.id === "config" && phase === "ask_slack_token") {
