@@ -31,8 +31,6 @@ import {
 } from "../lib/prereqs.js";
 import {
   getServiceDefs,
-  installService,
-  startAllServices,
   checkServiceHealth,
 } from "../lib/services.js";
 import {
@@ -69,6 +67,7 @@ const STEP_DEFS = [
   { id: "mcp_bridge", label: "MCP Bridge" },
   { id: "services", label: "Services" },
   { id: "health", label: "Health check" },
+  { id: "brain_bootstrap", label: "Brain setup" },
   { id: "profile", label: "Profile" },
 ];
 
@@ -263,6 +262,8 @@ export function WizardApp() {
       runServices();
     } else if (stepDef.id === "health" && phase === "init") {
       runHealthCheck();
+    } else if (stepDef.id === "brain_bootstrap" && phase === "init") {
+      runBrainBootstrap();
     }
     // config, mcp_bridge, profile phases are driven by user input / phase changes
   }, [currentStepIdx, phase]);
@@ -583,43 +584,32 @@ export function WizardApp() {
       return;
     }
 
-    updateStep("services", { status: "active", detail: "installing plists..." });
+    updateStep("services", { status: "active", detail: "installing all services..." });
 
     setTimeout(() => {
       try {
-        const defs = getServiceDefs();
-        const managed = defs.filter((d) => d.managed);
-        const errors = [];
+        const repoRoot = resolve(__dirname, "../../..");
+        const installScript = resolve(repoRoot, "services", "install-services.sh");
 
-        for (const def of managed) {
-          try {
-            installService(def);
-          } catch (err) {
-            errors.push(`${def.displayName}: ${err.message}`);
-          }
+        if (!existsSync(installScript)) {
+          failStep("services", "install-services.sh not found");
+          advanceToNext();
+          return;
         }
 
-        if (errors.length > 0) {
-          failStep("services", errors.join("; "));
+        const output = tryExec(`bash "${installScript}"`, {
+          timeout: 60000,
+          cwd: repoRoot,
+        });
+
+        if (output !== null) {
+          // Count how many services were installed from the output
+          const installed = (output.match(/\+ com\.familiar\./g) || []).length;
+          completeStep("services", `${installed} services installed`);
         } else {
-          // Also start them
-          updateStep("services", { status: "active", detail: "starting services..." });
-          setTimeout(() => {
-            try {
-              const results = startAllServices();
-              const failed = results.filter((r) => !r.ok);
-              if (failed.length > 0) {
-                completeStep("services",
-                  `installed, ${failed.length} failed to start`);
-              } else {
-                completeStep("services", `${results.length} services started`);
-              }
-            } catch (err) {
-              completeStep("services", "installed but start had issues");
-            }
-            advanceToNext();
-          }, 500);
+          failStep("services", "install-services.sh failed");
         }
+        advanceToNext();
       } catch (err) {
         failStep("services", err.message);
         advanceToNext();
@@ -684,6 +674,59 @@ export function WizardApp() {
     };
 
     setTimeout(poll, 1000);
+  }
+
+  function runBrainBootstrap() {
+    if (LITE_MODE) {
+      skipStep("brain_bootstrap", "binary-only install");
+      advanceToNext();
+      return;
+    }
+
+    const repoRoot = resolve(__dirname, "../../..");
+    const steps = [];
+
+    // Step 1: Pull nomic-embed-text if ollama is available
+    if (dataRef.current.ollamaFound) {
+      updateStep("brain_bootstrap", { status: "active", detail: "pulling embedding model..." });
+      const pullResult = tryExec("ollama pull nomic-embed-text", { timeout: 300000 });
+      if (pullResult !== null) {
+        steps.push("embeddings");
+      }
+    }
+
+    // Step 2: Seed RAG database
+    const ingestScript = resolve(repoRoot, "brain", "rag", "ingest.mjs");
+    if (existsSync(ingestScript)) {
+      updateStep("brain_bootstrap", { status: "active", detail: "seeding knowledge base..." });
+      const ingestResult = tryExec(`bun "${ingestScript}"`, {
+        timeout: 120000,
+        cwd: repoRoot,
+      });
+      if (ingestResult !== null) {
+        steps.push("RAG");
+      }
+    }
+
+    // Step 3: Run first learning cycle
+    const learnerScript = resolve(repoRoot, "brain", "learner.mjs");
+    if (existsSync(learnerScript) && dataRef.current.ollamaFound) {
+      updateStep("brain_bootstrap", { status: "active", detail: "first learning cycle..." });
+      const learnResult = tryExec(`bun "${learnerScript}"`, {
+        timeout: 180000,
+        cwd: repoRoot,
+      });
+      if (learnResult !== null) {
+        steps.push("learner");
+      }
+    }
+
+    if (steps.length > 0) {
+      completeStep("brain_bootstrap", steps.join(" + "));
+    } else {
+      skipStep("brain_bootstrap", "nothing to bootstrap (ok)");
+    }
+    advanceToNext();
   }
 
   // Profile step callbacks
@@ -865,7 +908,7 @@ export function WizardApp() {
       ? e(Box, { flexDirection: "column", marginTop: 1, marginLeft: 2 },
           e(Text, null, ""),
           e(Text, { color: colors.green, bold: true }, "Setup complete!"),
-          e(Text, { color: colors.gray }, "Run `familiar` to get your familiar."),
+          e(Text, { color: colors.gray }, "Starting your familiar..."),
           LITE_MODE
             ? e(Box, { flexDirection: "column", marginTop: 1 },
                 e(Text, { color: colors.cyan }, "For the full stack (gateway, tools, memory, training):"),

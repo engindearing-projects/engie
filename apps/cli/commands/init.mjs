@@ -24,4 +24,13 @@ export async function run({ args = [] } = {}) {
 
   const { waitUntilExit } = render(e(WizardApp));
   await waitUntilExit();
+
+  // Auto-launch the chat TUI after wizard completes
+  try {
+    const { run: startChat } = await import("./chat.mjs");
+    await startChat({});
+  } catch (err) {
+    // If chat fails to launch (e.g. gateway not ready), just exit gracefully
+    console.log("Tip: run `familiar` to start chatting.");
+  }
 }
