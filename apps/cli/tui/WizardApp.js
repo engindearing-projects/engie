@@ -605,6 +605,8 @@ export function WizardApp() {
         if (output !== null) {
           // Count how many services were installed from the output
           const installed = (output.match(/\+ com\.familiar\./g) || []).length;
+          // Restart gateway so it picks up the new config/token
+          tryExec(`launchctl kickstart -k gui/$(id -u)/com.familiar.gateway`, { timeout: 10000 });
           completeStep("services", `${installed} services installed`);
         } else {
           failStep("services", "install-services.sh failed");

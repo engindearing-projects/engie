@@ -26,6 +26,8 @@ export async function run({ args = [] } = {}) {
   await waitUntilExit();
 
   // Auto-launch the chat TUI after wizard completes
+  // Brief pause to let the gateway finish restarting with the new token
+  await new Promise((r) => setTimeout(r, 2000));
   try {
     const { run: startChat } = await import("./chat.mjs");
     await startChat({});
