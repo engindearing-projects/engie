@@ -78,7 +78,13 @@ function readInitState() {
   try {
     const p = initStatePath();
     if (existsSync(p)) {
-      return JSON.parse(readFileSync(p, "utf-8"));
+      const state = JSON.parse(readFileSync(p, "utf-8"));
+      // Stale state guard: if the config file is missing, the user wiped
+      // ~/.familiar — ignore the saved state and start fresh.
+      if (!existsSync(configPath())) {
+        return { completedSteps: [], timestamp: null };
+      }
+      return state;
     }
   } catch { /* ignore */ }
   return { completedSteps: [], timestamp: null };

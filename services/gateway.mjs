@@ -46,7 +46,9 @@ stripSessionEnv();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function loadConfig() {
+  const HOME = process.env.HOME || "/tmp";
   const candidates = [
+    resolve(HOME, ".familiar", "config", "familiar.json"),
     resolve(PROJECT_DIR, "config", "familiar.json"),
     resolve(PROJECT_DIR, "config", "cozyterm.json"),
   ];
