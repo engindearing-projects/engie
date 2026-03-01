@@ -11,6 +11,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, readdirSync, mkdirSync, statSync } from "fs";
 import { resolve, join, basename, extname } from "path";
+import { buildGraph } from "./graph.mjs";
 
 const HOME = process.env.HOME || "/tmp";
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
@@ -498,6 +499,21 @@ async function main() {
 
   db.close();
   console.log(`[ingest] Done: ${embedded} embedded, ${errors} errors${rejected > 0 ? `, ${rejected} rejected by CRAAP` : ""}`);
+
+  // Build knowledge graph from any newly ingested chunks
+  if (embedded > 0) {
+    console.log("[ingest] Building knowledge graph...");
+    try {
+      const graphResult = await buildGraph({ limit: 500, verbose: false });
+      if (graphResult.processed > 0) {
+        console.log(`[ingest] Graph: ${graphResult.processed} chunks processed, ${graphResult.entities} entity mentions`);
+      } else {
+        console.log("[ingest] Graph: no new chunks to process");
+      }
+    } catch (err) {
+      console.error(`[ingest] Graph build warning: ${err.message}`);
+    }
+  }
 }
 
 main().catch(err => {

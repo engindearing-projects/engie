@@ -13,6 +13,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import { resolve } from "path";
+import { queryGraph } from "./graph.mjs";
 
 const DB_PATH = resolve(import.meta.dir, "knowledge.db");
 const OLLAMA_URL = "http://localhost:11434";
@@ -87,9 +88,10 @@ export async function search(query, topK = 5, opts = {}) {
   const queryVec = await embed(query);
   const minScore = opts.minScore ?? 0.3;
 
-  // Score all chunks
-  const scored = rows
+  // Score all chunks by vector similarity
+  const vectorScored = rows
     .map(row => ({
+      id: row.id,
       text: row.text,
       score: cosineSimilarity(queryVec, blobToVec(row.embedding)),
       source: row.source,
@@ -98,10 +100,42 @@ export async function search(query, topK = 5, opts = {}) {
       tags: row.tags,
     }))
     .filter(r => r.score >= minScore)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
+    .sort((a, b) => b.score - a.score);
 
-  return scored;
+  let results = vectorScored.slice(0, topK);
+
+  // Graph-enhanced: pull in related chunks the vector search may have missed
+  const useGraph = opts.graph !== false;
+  if (useGraph) {
+    const seenIds = new Set(results.map(r => r.id));
+    const terms = query.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 3);
+
+    for (const term of terms) {
+      try {
+        const { chunks: gChunks } = await queryGraph(term, { topChunks: 3 });
+        for (const gc of gChunks) {
+          if (!seenIds.has(gc.id)) {
+            seenIds.add(gc.id);
+            results.push({
+              id: gc.id,
+              text: gc.text,
+              score: 0.35,
+              source: gc.source,
+              source_file: null,
+              date: gc.date,
+              tags: gc.tags,
+              via: "graph",
+            });
+          }
+        }
+      } catch { /* graph unavailable, continue with vector results */ }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    results = results.slice(0, topK);
+  }
+
+  return results;
 }
 
 /**
