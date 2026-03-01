@@ -11,7 +11,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, readdirSync, mkdirSync, statSync } from "fs";
 import { resolve, join, basename, extname } from "path";
-import { buildGraph } from "./graph.mjs";
+import { buildGraph, initGraphSchema } from "./graph.mjs";
 
 const HOME = process.env.HOME || "/tmp";
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
@@ -497,22 +497,23 @@ async function main() {
     }
   }
 
+  // Initialize graph schema so it's ready even if the async build hasn't run yet
+  initGraphSchema(db);
+
   db.close();
   console.log(`[ingest] Done: ${embedded} embedded, ${errors} errors${rejected > 0 ? `, ${rejected} rejected by CRAAP` : ""}`);
 
-  // Build knowledge graph from any newly ingested chunks
+  // Non-blocking: extract entities and build graph edges for new chunks.
+  // Runs after db.close() with its own connection so it doesn't block the pipeline.
   if (embedded > 0) {
-    console.log("[ingest] Building knowledge graph...");
-    try {
-      const graphResult = await buildGraph({ limit: 500, verbose: false });
-      if (graphResult.processed > 0) {
-        console.log(`[ingest] Graph: ${graphResult.processed} chunks processed, ${graphResult.entities} entity mentions`);
-      } else {
-        console.log("[ingest] Graph: no new chunks to process");
-      }
-    } catch (err) {
-      console.error(`[ingest] Graph build warning: ${err.message}`);
-    }
+    console.log("[ingest] Building knowledge graph for new chunks...");
+    buildGraph({ limit: embedded + 50, verbose: true })
+      .then(result => {
+        console.log(`[ingest] Graph built: ${result.processed} chunks, ${result.entities} entities, ${result.skipped} skipped`);
+      })
+      .catch(err => {
+        console.error(`[ingest] Graph build error (non-fatal): ${err.message}`);
+      });
   }
 }
 
