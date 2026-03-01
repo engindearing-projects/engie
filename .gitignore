@@ -84,6 +84,7 @@ trainer/data/raw/
 trainer/data/traces/
 trainer/data/train.jsonl
 trainer/data/valid.jsonl
+trainer/data/brain/*.jsonl
 trainer/db/
 trainer/tools/
 trainer/domains/.active
