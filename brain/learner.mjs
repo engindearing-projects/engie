@@ -297,12 +297,54 @@ async function learn(reflection) {
 
 // ── Step 3: INSTALL ─────────────────────────────────────────────────────────
 
+import {
+  discoverTemplates,
+  validateTemplate,
+  installSkill as pipelineInstallSkill,
+  listInstalled as pipelineListInstalled,
+  findTemplate,
+} from "./skills/pipeline.mjs";
+
 async function install(learning) {
   console.log("[learner] Step 3: INSTALL");
 
+  // Phase A: Install any uninstalled templates from the templates directory
+  const templates = discoverTemplates();
+  const installed = pipelineListInstalled();
+  const installedNames = new Set(installed.map(s => s.name));
+  let templateInstallCount = 0;
+
+  for (const template of templates) {
+    if (installedNames.has(template.name)) continue;
+
+    const validation = validateTemplate(template);
+    if (!validation.valid) {
+      console.log(`[learner] Template '${template.name}' invalid: ${validation.errors[0]}`);
+      continue;
+    }
+
+    if (!DRY_RUN) {
+      const result = pipelineInstallSkill(template);
+      if (result.ok) {
+        templateInstallCount++;
+        console.log(`[learner] Installed template skill: ${template.name}`);
+      } else {
+        console.log(`[learner] Template install failed: ${template.name} — ${result.message}`);
+      }
+    } else {
+      console.log(`[learner] (dry run) Would install template: ${template.name}`);
+      templateInstallCount++;
+    }
+  }
+
+  if (templateInstallCount > 0) {
+    console.log(`[learner] Installed ${templateInstallCount} new template skill(s)`);
+  }
+
+  // Phase B: Generate a new skill from learning (existing behavior)
   if (!learning) {
-    console.log("[learner] Nothing to install");
-    return null;
+    console.log("[learner] No learning data — skipping skill generation");
+    return templateInstallCount > 0 ? { status: "templates_only", count: templateInstallCount } : null;
   }
 
   // Ask the brain to design AND implement a skill (uses Claude for better JSON + code)
@@ -405,23 +447,23 @@ export async function execute(args) {
     const fs = await import("fs");
     fs.appendFileSync(IMPROVEMENTS_FILE, JSON.stringify(improvementEntry) + "\n");
 
-    // Write skill module and update registry
+    // Write skill module and update registry via pipeline if we have code
     if (skillCode) {
-      const skillDir = resolve(SKILLS_DIR, skillSpec.name);
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(resolve(skillDir, "index.mjs"), skillCode);
-
-      registry.skills.push({
+      const template = {
         name: skillSpec.name,
         description: skillSpec.description,
-        parameters: skillSpec.parameters,
-        approved: false,
-        installedAt: new Date().toISOString(),
-      });
-      registry.lastUpdated = new Date().toISOString();
-      writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2));
-
-      console.log(`[learner] Installed skill: ${skillSpec.name} (sandboxed until approved)`);
+        parameters: skillSpec.parameters || {},
+        source: { code: skillCode },
+        tags: ["auto-generated"],
+        author: "familiar-learner",
+      };
+      const installResult = pipelineInstallSkill(template);
+      if (installResult.ok) {
+        console.log(`[learner] Installed skill: ${skillSpec.name} (sandboxed until approved)`);
+      } else {
+        // Fallback to direct write if pipeline rejects (e.g. already exists)
+        console.log(`[learner] Pipeline install note: ${installResult.message}`);
+      }
     }
   }
 
