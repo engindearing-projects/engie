@@ -27,6 +27,18 @@ const RAW_DIR = resolve(__dirname, "data", "raw");
 const CLAUDE_URL = "http://127.0.0.1:18791";
 const OLLAMA_URL = "http://localhost:11434";
 
+// Gemini Flash — free tier (1500 req/day), used as default one-shot model
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || (() => {
+  try {
+    const env = readFileSync(resolve(__dirname, "..", "config", ".env"), "utf8");
+    return env.match(/GEMINI_API_KEY=(.+)/)?.[1]?.trim();
+  } catch { return null; }
+})();
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+// --with-claude flag enables Claude one-shots (off by default to save rate limits)
+const USE_CLAUDE = process.argv.includes("--with-claude");
+
 if (!existsSync(RAW_DIR)) mkdirSync(RAW_DIR, { recursive: true });
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -89,6 +101,33 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function callGemini(prompt) {
+  const start = Date.now();
+  if (!GEMINI_API_KEY) return { response: null, durationMs: 0 };
+  try {
+    const resp = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!resp.ok) {
+      const err = await resp.text().catch(() => "");
+      console.log(`    Gemini error ${resp.status}: ${err.slice(0, 100)}`);
+      return { response: null, durationMs: Date.now() - start };
+    }
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+    return { response: text, durationMs: Date.now() - start };
+  } catch (e) {
+    console.log(`    Gemini call failed: ${e.message}`);
+    return { response: null, durationMs: Date.now() - start };
+  }
+}
+
 async function callClaude(prompt) {
   const start = Date.now();
   try {
@@ -115,12 +154,12 @@ async function callOllama(prompt) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "familiar-coder:latest",
+        model: "familiar-brain:latest",
         messages: [
           {
             role: "system",
             content:
-              "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations.",
+              "You are Familiar, a persistent AI assistant from familiar.run. Write clean, well-structured code. Focus on the implementation, not explanation.",
           },
           { role: "user", content: prompt },
         ],
@@ -272,21 +311,34 @@ async function collectGroundTruthPair(prompt, realDiff, source, metadata = {}) {
   console.log(`  Prompt: ${prompt.slice(0, 120)}...`);
   console.log(`  Real diff: ${realDiff.length} chars`);
 
-  // Send prompt to both models (cold, no context about the repo)
-  const [claude, local] = await Promise.all([
-    callClaude(prompt),
+  // All three models on every PR:
+  //   Gemini Flash (free, silver) — always runs
+  //   Claude (gold, best-effort) — runs unless --no-claude, gracefully skips on failure
+  //   Local brain model (our model) — always runs
+  const calls = [
+    callGemini(prompt),
     callOllama(prompt),
-  ]);
+  ];
+  if (USE_CLAUDE) calls.push(callClaude(prompt));
 
-  if (!claude.response && !local.response) {
-    console.log(`  SKIP: both models failed to respond`);
+  const results = await Promise.all(calls);
+  const gemini = results[0];
+  const local = results[1];
+  const claude = USE_CLAUDE ? results[2] : { response: null, durationMs: 0 };
+
+  // Need at least one model to respond
+  if (!gemini.response && !claude.response && !local.response) {
+    console.log(`  SKIP: all models failed to respond`);
     pairsSkipped++;
     return;
   }
 
-  // Score both against the real diff
-  const claudeScore = scoreAgainstGroundTruth(claude.response, realDiff);
+  // Score all three against the real merged diff
+  const geminiScore = scoreAgainstGroundTruth(gemini.response, realDiff);
   const localScore = scoreAgainstGroundTruth(local.response, realDiff);
+  const claudeScore = claude.response
+    ? scoreAgainstGroundTruth(claude.response, realDiff)
+    : { total: 0, similarity: 0, identifiers: 0, hasCode: false };
 
   const pair = {
     id: `gt_${randomUUID().replace(/-/g, "").slice(0, 12)}`,
@@ -296,43 +348,50 @@ async function collectGroundTruthPair(prompt, realDiff, source, metadata = {}) {
     type: "ground_truth",
     source,
     ground_truth_diff: realDiff,
-    // Claude's response and score
+    // Gemini Flash (silver — free, always present)
+    gemini_response: gemini.response,
+    gemini_duration_ms: gemini.durationMs,
+    gemini_score: geminiScore,
+    // Claude (gold — best-effort, may be null if rate limited or down)
     claude_response: claude.response,
     claude_duration_ms: claude.durationMs,
     claude_score: claudeScore,
-    // Local model's response and score
+    // Local brain model (our model being trained)
     local_response: local.response,
     local_duration_ms: local.durationMs,
     local_score: localScore,
-    local_model: "familiar-coder:latest",
+    local_model: "familiar-brain:latest",
     // Metadata from the PR/commit
     ...metadata,
   };
 
   appendFileSync(todayFile(), JSON.stringify(pair) + "\n");
 
-  // Record in DB (reuse existing schema, store ground-truth flag in routed_to)
+  // Record in DB — use best external score as complexity proxy
+  const bestExternal = Math.max(geminiScore.total, claudeScore.total);
   try {
     const { recordPair } = await import("./forge-db.js");
     recordPair({
       id: pair.id,
       prompt_hash: hash,
       timestamp: pair.timestamp,
-      complexity_score: claudeScore.total, // use claude's score as complexity proxy
+      complexity_score: bestExternal,
       routed_to: "ground_truth",
       claude_response_length: claude.response?.length ?? 0,
       local_response_length: local.response?.length ?? 0,
       claude_duration_ms: claude.durationMs,
       local_duration_ms: local.durationMs,
-      local_model: "familiar-coder:latest",
-      has_code: claudeScore.hasCode || localScore.hasCode,
+      local_model: "familiar-brain:latest",
+      has_code: geminiScore.hasCode || claudeScore.hasCode || localScore.hasCode,
     });
   } catch {}
 
   pairsCollected++;
-  console.log(
-    `  SAVED ${pair.id} | Claude: ${claudeScore.total.toFixed(2)} (sim=${claudeScore.similarity}, ids=${claudeScore.identifiers}) | Local: ${localScore.total.toFixed(2)} (sim=${localScore.similarity}, ids=${localScore.identifiers}) [total: ${pairsCollected}]`
-  );
+  let scoreLog = `Gemini: ${geminiScore.total.toFixed(2)}`;
+  scoreLog += ` | Local: ${localScore.total.toFixed(2)}`;
+  if (claude.response) scoreLog += ` | Claude: ${claudeScore.total.toFixed(2)}`;
+  else if (USE_CLAUDE) scoreLog += ` | Claude: skipped`;
+  console.log(`  SAVED ${pair.id} | ${scoreLog} [total: ${pairsCollected}]`);
 }
 
 // ── Mine Merged PRs ─────────────────────────────────────────────────────────
@@ -530,6 +589,9 @@ async function main() {
 
   console.log("=== The Forge — Ground-Truth Data Miner ===");
   console.log(`  Strategy: Real merged code as gold standard`);
+  console.log(`  Models: Gemini Flash (silver) + familiar-brain (local)${USE_CLAUDE ? " + Claude (gold)" : ""}`);
+  console.log(`  Claude: ${USE_CLAUDE ? "ON (--with-claude)" : "OFF (use --with-claude to enable)"}`);
+  console.log(`  Gemini API key: ${GEMINI_API_KEY ? "set" : "MISSING — set GEMINI_API_KEY"}`);
   console.log(`  Sources: ${sources.map((s) => s.name).join(", ")}`);
   console.log(`  Existing pairs: ${promptsSeen.size}`);
   console.log("");

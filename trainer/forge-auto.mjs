@@ -118,11 +118,11 @@ async function getActiveScore() {
   return eval_?.overall_score ?? active.benchmark_score ?? null;
 }
 
-// Domains to train in order (coding first since it has the most data)
-const TRAIN_DOMAINS = ["coding", "chat", "reasoning", "tools"];
+// Train the unified brain model — one mega model that handles all roles
+const TRAIN_DOMAINS = ["brain"];
 
 // Minimum training examples required per domain to bother training
-const MIN_DOMAIN_EXAMPLES = { coding: 10, chat: 10, reasoning: 10, tools: 10 };
+const MIN_DOMAIN_EXAMPLES = { brain: 20, coding: 10, chat: 10, reasoning: 10, tools: 10 };
 
 async function runDomainPipeline(domain) {
   const domainStart = Date.now();

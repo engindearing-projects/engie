@@ -5,7 +5,7 @@
 // Targets: closed issues, more PRs, deeper commit history, popular open-source repos.
 
 import { execSync } from "child_process";
-import { appendFileSync, mkdirSync, existsSync } from "fs";
+import { appendFileSync, mkdirSync, existsSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createHash, randomUUID } from "crypto";
@@ -14,6 +14,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const RAW_DIR = resolve(__dirname, "data", "raw");
 const CLAUDE_URL = "http://127.0.0.1:18791";
 const OLLAMA_URL = "http://localhost:11434";
+
+// Gemini Flash — free tier, default one-shot model
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || (() => {
+  try {
+    const env = readFileSync(resolve(__dirname, "..", "config", ".env"), "utf8");
+    return env.match(/GEMINI_API_KEY=(.+)/)?.[1]?.trim();
+  } catch { return null; }
+})();
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const USE_CLAUDE = process.argv.includes("--with-claude");
 
 if (!existsSync(RAW_DIR)) mkdirSync(RAW_DIR, { recursive: true });
 
@@ -60,6 +70,26 @@ function hashPrompt(p) { return createHash("sha256").update(p).digest("hex").sli
 function todayFile() { return resolve(RAW_DIR, `${new Date().toISOString().slice(0, 10)}.jsonl`); }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+async function callGemini(prompt) {
+  const start = Date.now();
+  if (!GEMINI_API_KEY) return { response: null, durationMs: 0 };
+  try {
+    const resp = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!resp.ok) return { response: null, durationMs: Date.now() - start };
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+    return { response: text, durationMs: Date.now() - start };
+  } catch { return { response: null, durationMs: Date.now() - start }; }
+}
+
 async function callClaude(prompt) {
   const start = Date.now();
   try {
@@ -83,9 +113,9 @@ async function callOllama(prompt) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "familiar-coder:latest",
+        model: "familiar-brain:latest",
         messages: [
-          { role: "system", content: "You are Engie, a familiar from familiar.run — an expert coding assistant. Write clean, well-structured code with clear explanations." },
+          { role: "system", content: "You are Familiar, a persistent AI assistant from familiar.run. Write clean, well-structured code. Focus on the implementation, not explanation." },
           { role: "user", content: prompt },
         ],
         stream: false,
@@ -106,14 +136,22 @@ async function collectPair(prompt, source) {
   console.log(`\n  Collecting pair (${source})...`);
   console.log(`  Prompt: ${prompt.slice(0, 120)}...`);
 
-  const [claude, local] = await Promise.all([callClaude(prompt), callOllama(prompt)]);
+  // All models: Gemini (silver, free) + local brain + Claude (gold, opt-in)
+  const calls = [callGemini(prompt), callOllama(prompt)];
+  if (USE_CLAUDE) calls.push(callClaude(prompt));
+  const results = await Promise.all(calls);
+  const gemini = results[0];
+  const local = results[1];
+  const claude = USE_CLAUDE ? results[2] : { response: null, durationMs: 0 };
 
-  if (!claude.response || !local.response) {
-    console.log(`  SKIP: missing response (claude=${!!claude.response}, local=${!!local.response})`);
+  // Need at least one response with code blocks
+  const anyResponse = gemini.response || local.response || claude.response;
+  if (!anyResponse) {
+    console.log(`  SKIP: all models failed`);
     pairsSkipped++; return;
   }
-  if (!/```/.test(claude.response)) {
-    console.log(`  SKIP: no code blocks in Claude response`);
+  if (!/```/.test(anyResponse)) {
+    console.log(`  SKIP: no code blocks in any response`);
     pairsSkipped++; return;
   }
 
@@ -122,9 +160,10 @@ async function collectPair(prompt, source) {
     timestamp: new Date().toISOString(),
     prompt, prompt_hash: hash,
     complexity_score: null, routed_to: "mine", source,
+    gemini_response: gemini.response, gemini_duration_ms: gemini.durationMs,
     claude_response: claude.response, claude_duration_ms: claude.durationMs,
     local_response: local.response, local_duration_ms: local.durationMs,
-    local_model: "familiar-coder:latest",
+    local_model: "familiar-brain:latest",
   };
 
   appendFileSync(todayFile(), JSON.stringify(pair) + "\n");
@@ -134,15 +173,17 @@ async function collectPair(prompt, source) {
     recordPair({
       id: pair.id, prompt_hash: hash, timestamp: pair.timestamp,
       complexity_score: null, routed_to: "mine",
-      claude_response_length: claude.response.length,
-      local_response_length: local.response.length,
+      claude_response_length: claude.response?.length ?? 0,
+      local_response_length: local.response?.length ?? 0,
       claude_duration_ms: claude.durationMs, local_duration_ms: local.durationMs,
-      local_model: "familiar-coder:latest", has_code: true,
+      local_model: "familiar-brain:latest", has_code: true,
     });
   } catch {}
 
   pairsCollected++;
-  console.log(`  SAVED pair ${pair.id} (claude=${claude.response.length}c/${claude.durationMs}ms, local=${local.response.length}c/${local.durationMs}ms) [total: ${pairsCollected}]`);
+  let log = `gemini=${gemini.response?.length ?? 0}c, local=${local.response?.length ?? 0}c`;
+  if (claude.response) log += `, claude=${claude.response.length}c`;
+  console.log(`  SAVED pair ${pair.id} (${log}) [total: ${pairsCollected}]`);
 }
 
 // ── Prompt Builders ─────────────────────────────────────────────────────────

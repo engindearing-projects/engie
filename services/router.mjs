@@ -8,10 +8,24 @@
 //   const backend = await router.route({ prompt, hints });
 
 import { classifyPrompt } from "../trainer/classify.mjs";
+import { readFileSync } from "fs";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_PROXY_URL = "http://127.0.0.1:18791";
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const DEFAULT_LOCAL_MODEL = "familiar-brain:latest";
+
+// Gemini Flash — free middle tier between Claude and local
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || (() => {
+  try {
+    const env = readFileSync(resolve(__dirname, "..", "config", ".env"), "utf8");
+    return env.match(/GEMINI_API_KEY=(.+)/)?.[1]?.trim();
+  } catch { return null; }
+})();
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 // Role-specific system prompts — one brain, different hats
 const ROLE_PROMPTS = {
@@ -137,6 +151,32 @@ export class Router {
     }
   }
 
+  /** Check if Gemini Flash is available (free tier) */
+  async isGeminiAvailable() {
+    if (!GEMINI_API_KEY) return false;
+    if (this.geminiCache && Date.now() - this.geminiCache.at < 60_000) {
+      return this.geminiCache.available;
+    }
+    try {
+      // Lightweight probe — small prompt, low tokens
+      const resp = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: "ping" }] }],
+          generationConfig: { maxOutputTokens: 1 },
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+      const available = resp.ok;
+      this.geminiCache = { available, at: Date.now() };
+      return available;
+    } catch {
+      this.geminiCache = { available: false, at: Date.now() };
+      return false;
+    }
+  }
+
   /** Check if Ollama is reachable */
   async isOllamaAvailable() {
     if (this.ollamaCache && Date.now() - this.ollamaCache.at < 30_000) {
@@ -229,10 +269,11 @@ export class Router {
   /**
    * Decide which backend to use.
    *
-   * Claude is the primary driver — it produces the best results and every
-   * response feeds the Forge training pipeline, improving the local model.
-   * Ollama is the fallback for when Claude is offline or subscription is
-   * inactive. Complexity scoring is still computed for Forge collection.
+   * Cascade: Claude (gold) → Gemini (silver) → Local Ollama (free)
+   *
+   * Claude is the primary — best results, feeds Forge training pipeline.
+   * Gemini Flash is the middle tier — free, fast, good quality.
+   * Local Ollama is the fallback — our own trained model, always available.
    *
    * @param {object} opts
    * @param {string} opts.prompt
@@ -240,7 +281,7 @@ export class Router {
    * @param {boolean} [opts.hasCode]
    * @param {number} [opts.tokenEstimate]
    *
-   * @returns {Promise<{backend: "claude"|"ollama", reason: string, score: number, claudeAvailable: boolean, ollamaAvailable: boolean}>}
+   * @returns {Promise<{backend: "claude"|"gemini"|"ollama", reason: string, score: number, claudeAvailable: boolean, geminiAvailable: boolean, ollamaAvailable: boolean}>}
    */
   async route(opts) {
     const { prompt } = opts;
@@ -255,40 +296,55 @@ export class Router {
     // Score complexity for Forge training data collection
     const score = this.scoreComplexity(opts);
 
-    // Claude is the primary backend — check availability first
+    // 1. Claude — primary (gold)
     const claudeAvailable = await this.isClaudeAvailable();
-
     if (claudeAvailable) {
       return {
         backend: "claude",
         reason: `Claude primary (${roleInfo.role}, score=${score.toFixed(2)})`,
         score,
         claudeAvailable: true,
-        ollamaAvailable: true, // don't bother checking if Claude is up
-        ...roleInfo,
-      };
-    }
-
-    // Claude unavailable — fall back to local Ollama model
-    const ollamaAvailable = await this.isOllamaAvailable();
-
-    if (ollamaAvailable) {
-      return {
-        backend: "ollama",
-        reason: `Claude offline, falling back to ${resolvedModel}`,
-        score,
-        claudeAvailable: false,
+        geminiAvailable: true,
         ollamaAvailable: true,
         ...roleInfo,
       };
     }
 
-    // Both down — return ollama anyway, caller will handle the error
+    // 2. Gemini Flash — middle tier (silver, free)
+    const geminiAvailable = await this.isGeminiAvailable();
+    if (geminiAvailable) {
+      return {
+        backend: "gemini",
+        reason: `Claude offline, Gemini fallback (${roleInfo.role}, score=${score.toFixed(2)})`,
+        score,
+        claudeAvailable: false,
+        geminiAvailable: true,
+        ollamaAvailable: true,
+        ...roleInfo,
+      };
+    }
+
+    // 3. Local Ollama — last resort (our trained model)
+    const ollamaAvailable = await this.isOllamaAvailable();
+    if (ollamaAvailable) {
+      return {
+        backend: "ollama",
+        reason: `Claude + Gemini offline, local fallback ${resolvedModel}`,
+        score,
+        claudeAvailable: false,
+        geminiAvailable: false,
+        ollamaAvailable: true,
+        ...roleInfo,
+      };
+    }
+
+    // All down — return ollama anyway, caller will handle the error
     return {
       backend: "ollama",
-      reason: `Both backends unavailable, attempting ${resolvedModel}`,
+      reason: `All backends unavailable, attempting ${resolvedModel}`,
       score,
       claudeAvailable: false,
+      geminiAvailable: false,
       ollamaAvailable: false,
       ...roleInfo,
     };

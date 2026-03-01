@@ -170,7 +170,7 @@
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "Forge nightly training check. Run this sequence:\n\n1. Read the forge DB stats by running: bun -e 'import { getForgeStats } from \"/Users/grantjwylie/engie/trainer/forge-db.js\"; console.log(JSON.stringify(getForgeStats()));'\n2. Check if unusedPairs >= 50. If not, report 'Not enough new pairs for training (N unused)' via Telegram and stop.\n3. If >= 50 pairs, FIRST unload all Ollama models to free VRAM:\n   curl -s http://localhost:11434/api/generate -d '{\"model\":\"engie-coder:latest\",\"keep_alive\":0}'\n   curl -s http://localhost:11434/api/generate -d '{\"model\":\"llama3.2\",\"keep_alive\":0}'\n   curl -s http://localhost:11434/api/generate -d '{\"model\":\"llama3.1\",\"keep_alive\":0}'\n4. Run the full training pipeline:\n   a. cd ~/engie/trainer && .venv/bin/python scripts/prepare-data.py\n   b. .venv/bin/python scripts/train.py\n   c. .venv/bin/python scripts/evaluate.py\n   d. .venv/bin/python scripts/fuse-and-deploy.py\n5. After deploy, run self-iterate benchmark to collect new training traces:\n   bun ~/engie/trainer/self-iterate.mjs --model engie-coder:latest\n6. Send a Telegram summary:\n\nForge Nightly Training Complete\nTraining: Version [version], Train loss [loss], [count] examples\nBenchmark: Overall [score]%, Change [+/-delta] vs previous\nSelf-Iterate: [passed]/[total] tasks\nModel: engie-coder:[version] deployed\n\nIf any step fails, report the error and which step failed via Telegram."
+        "message": "Forge nightly training check. Run this sequence:\n\n1. Read the forge DB stats by running: bun -e 'import { getForgeStats } from \"/Users/grantjwylie/engie/trainer/forge-db.js\"; console.log(JSON.stringify(getForgeStats()));'\n2. Check if unusedPairs >= 50. If not, report 'Not enough new pairs for training (N unused)' via Telegram and stop.\n3. If >= 50 pairs, FIRST unload all Ollama models to free VRAM:\n   curl -s http://localhost:11434/api/generate -d '{\"model\":\"familiar-brain:latest\",\"keep_alive\":0}'\n   curl -s http://localhost:11434/api/generate -d '{\"model\":\"familiar-coder:latest\",\"keep_alive\":0}'\n   curl -s http://localhost:11434/api/generate -d '{\"model\":\"llama3.2\",\"keep_alive\":0}'\n4. Run the full BRAIN training pipeline (one unified mega model):\n   a. cd ~/engie/trainer && .venv/bin/python scripts/prepare-data.py --domain brain\n   b. .venv/bin/python scripts/train.py --domain brain\n   c. .venv/bin/python scripts/evaluate.py --domain brain\n   d. .venv/bin/python scripts/fuse-and-deploy.py --domain brain\n5. After deploy, run self-iterate benchmark to collect new training traces:\n   bun ~/engie/trainer/self-iterate.mjs --model familiar-brain:latest\n6. Send a Telegram summary:\n\nForge Nightly Training Complete\nTraining: Version [version], Train loss [loss], [count] examples\nBenchmark: Overall [score]%, Change [+/-delta] vs previous\nSelf-Iterate: [passed]/[total] tasks\nModel: familiar-brain:[version] deployed\n\nIf any step fails, report the error and which step failed via Telegram."
       },
       "delivery": {
         "mode": "announce",
@@ -216,6 +216,34 @@
         "lastStatus": "error",
         "lastDurationMs": 600023,
         "lastError": "Error: cron: job execution timed out"
+      }
+    },
+    {
+      "id": "openfang-research-iteration",
+      "agentId": "engie",
+      "name": "OpenFang Research & Integration",
+      "enabled": true,
+      "createdAtMs": 1772358000000,
+      "updatedAtMs": 1772358000000,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 3 * * *",
+        "tz": "America/Los_Angeles"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "timeoutSeconds": 3600,
+        "message": "OpenFang research and integration iteration. OpenFang is installed at ~/.openfang/bin/openfang (v0.2.3). Research docs are at ~/engie/memory/openfang-research.md. Your goal: make Familiar more autonomous like OpenFang.\n\nPhase 1 — STUDY: Read ~/engie/memory/openfang-research.md. Then explore the OpenFang binary: run ~/.openfang/bin/openfang --help, ~/.openfang/bin/openfang hand list, ~/.openfang/bin/openfang agent list. Study its HAND.toml format, SKILL.md format, and how it structures autonomous tasks.\n\nPhase 2 — COMPARE: Read our current systems: ~/engie/brain/learner.mjs, ~/engie/brain/skills/registry.json, ~/engie/brain/rag/index.mjs, ~/engie/cron/jobs.json. Identify the gaps between Familiar and OpenFang's autonomous capabilities.\n\nPhase 3 — BUILD: Pick ONE concrete capability from OpenFang that Familiar doesn't have yet and implement it. Priority order:\n  a. A 'Hands' manifest system — HAND.toml or HAND.json files that define autonomous tasks with schedules, tools, metrics, and multi-phase playbooks. Start simple: define the schema, write a loader, wire it into the brain.\n  b. Knowledge graph building — entity extraction from conversations and RAG chunks, relationship mapping, queryable graph store.\n  c. CRAAP-based source evaluation for the researcher/learner.\n  d. A proper skill installation pipeline from SKILL.md templates.\n  e. Workflow engine for chaining tasks.\n\nPhase 4 — TEST: Run what you built. Verify it works. Fix any bugs.\n\nPhase 5 — REPORT: Write your progress to ~/engie/brain/ideas/openfang-integration.jsonl (append a new JSON line with date, what you built, what worked, what's next). Send a Telegram summary of what you accomplished and what to tackle next iteration.\n\nThis job runs nightly. Each night, pick up where you left off. Read openfang-integration.jsonl for previous progress. Don't repeat completed work — always advance to the next capability."
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "telegram",
+        "bestEffort": true
+      },
+      "state": {
+        "consecutiveErrors": 0
       }
     },
     {

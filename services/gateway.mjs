@@ -43,6 +43,41 @@ import {
 
 stripSessionEnv();
 
+// ── Gemini Flash — middle-tier fallback between Claude and local ────────────
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || (() => {
+  try {
+    const env = readFileSync(resolve(PROJECT_DIR, "config", ".env"), "utf8");
+    return env.match(/GEMINI_API_KEY=(.+)/)?.[1]?.trim();
+  } catch { return null; }
+})();
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+async function callGemini(prompt, systemPrompt) {
+  if (!GEMINI_API_KEY) throw new Error("No Gemini API key");
+  const contents = [];
+  if (systemPrompt) {
+    contents.push({ role: "user", parts: [{ text: systemPrompt }] });
+    contents.push({ role: "model", parts: [{ text: "Understood." }] });
+  }
+  contents.push({ role: "user", parts: [{ text: prompt }] });
+  const resp = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents,
+      generationConfig: { temperature: 0.5, maxOutputTokens: 16384 },
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => "");
+    throw new Error(`Gemini ${resp.status}: ${err.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "(no response)";
+}
+
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -592,24 +627,54 @@ async function handleChatSend(ws, reqId, params) {
           });
         }).catch(() => {});
       } catch (claudeErr) {
-        // Claude failed (rate limit, crash, etc.) — fall back to Ollama
+        // Claude failed (rate limit, crash, etc.) — try Gemini next
         const reason = claudeErr.message?.includes("hit your limit") ? "rate-limited" : "errored";
-        console.log(`[chat] Claude ${reason}, falling back to Ollama tool-loop: ${claudeErr.message}`);
+        console.log(`[chat] Claude ${reason}: ${claudeErr.message}`);
         claudeReady = false;
         usedFallback = true;
       }
     }
 
-    if (!claudeReady) {
-      // ── Fallback: Local Ollama model ──
-      const reason = usedFallback ? "Claude failed, using local model" : "Claude is offline";
+    // ── Gemini Flash — middle tier (silver, free) ──
+    let geminiDone = false;
+    if (!claudeReady && GEMINI_API_KEY) {
+      try {
+        console.log(`[chat] trying Gemini Flash fallback`);
+        broadcast("chat", { runId, sessionKey, state: "progress", message: { role: "assistant", content: "(Claude unavailable — using Gemini Flash)" } });
+
+        responseText = await callGemini(effectivePrompt, fullSystemPrompt);
+        const responseDurationMs = Date.now() - responseStart;
+        console.log(`[chat] gemini done: duration=${responseDurationMs}ms len=${responseText.length}`);
+
+        logSessionQuality({ role, confidence: 0.7, flags: ["gemini-fallback"], toolCalls: 0, iterations: 0 });
+
+        // Forge collector — Gemini responses are training data too
+        getCollector().then((c) => {
+          if (c) c.collectPair({
+            prompt: message,
+            routedTo: "gemini",
+            complexityScore: routeResult.score,
+            primaryResponse: responseText,
+            primaryDurationMs: responseDurationMs,
+          });
+        }).catch(() => {});
+
+        geminiDone = true;
+      } catch (geminiErr) {
+        console.log(`[chat] Gemini failed: ${geminiErr.message}`);
+      }
+    }
+
+    if (!claudeReady && !geminiDone) {
+      // ── Last resort: Local Ollama model ──
+      const reason = usedFallback ? "Claude + Gemini failed, using local model" : "Claude + Gemini offline";
       console.log(`[chat] ${reason}, falling back to Ollama tool-loop`);
       broadcast("chat", { runId, sessionKey, state: "progress", message: { role: "assistant", content: `(Running on local model — ${reason})` } });
 
       const loopResult = await runToolLoop({
         prompt: effectivePrompt,
         systemPrompt: fullSystemPrompt,
-        model: routeResult.model || "familiar-coder:latest",
+        model: routeResult.model || "familiar-brain:latest",
         maxIterations: 10,
         maxToolCalls: 25,
         timeoutMs: 120_000,
@@ -619,7 +684,7 @@ async function handleChatSend(ws, reqId, params) {
       const responseDurationMs = Date.now() - responseStart;
       console.log(`[chat] ollama fallback done: ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, duration=${responseDurationMs}ms`);
 
-      logSessionQuality({ role, confidence: 0.5, flags: [usedFallback ? "claude-fallback" : "offline-fallback"], toolCalls: loopResult.toolCalls.length, iterations: loopResult.iterations });
+      logSessionQuality({ role, confidence: 0.5, flags: [usedFallback ? "claude+gemini-fallback" : "offline-fallback"], toolCalls: loopResult.toolCalls.length, iterations: loopResult.iterations });
     }
 
     broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
