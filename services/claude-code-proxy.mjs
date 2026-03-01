@@ -657,16 +657,44 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    // ── Route to Claude Code for heavy tasks ─────────────────────────
+    // ── Route to Claude Code (primary) ─────────────────────────
     console.log(`  → Claude Code (${routeResult.reason})`);
 
-    if (!claudeBin()) {
-      return jsonResponse(res, 503, { error: { message: "claude CLI not found", type: "server_error" } });
-    }
+    // If Claude is unavailable, fall back to Ollama tool-loop
+    if (!claudeBin() || !(await checkOnline())) {
+      console.log(`  → Claude unavailable, falling back to Ollama tool-loop`);
+      try {
+        const loopResult = await runToolLoop({
+          prompt: lastUserMessage,
+          systemPrompt: routeResult.systemPrompt || (systemPrompt !== FAMILIAR_SYSTEM_PREAMBLE ? systemPrompt : ""),
+          model: routeResult.model || "familiar-coder:latest",
+          maxIterations: 10,
+          maxToolCalls: 25,
+          timeoutMs: 120_000,
+        });
 
-    const online = await checkOnline();
-    if (!online) {
-      return jsonResponse(res, 503, { error: { message: "Anthropic API unreachable", type: "server_error" } });
+        const responseText = `(Local model — Claude is offline)\n\n${loopResult.response || "(no response)"}`;
+        console.log(`  → Ollama fallback done: ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools`);
+
+        if (stream) {
+          res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-coder", choices: [{ index: 0, delta: { role: "assistant", content: responseText }, finish_reason: null }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-coder", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        } else {
+          return jsonResponse(res, 200, {
+            id, object: "chat.completion", created, model: "familiar-coder",
+            choices: [{ index: 0, message: { role: "assistant", content: responseText }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            _meta: { fallback: true, iterations: loopResult.iterations, toolCalls: loopResult.toolCalls.length },
+          });
+        }
+        return;
+      } catch (e) {
+        console.error(`  → Ollama fallback also failed: ${e.message}`);
+        return jsonResponse(res, 503, { error: { message: "Both Claude and local model unavailable", type: "server_error" } });
+      }
     }
 
     // For follow-ups with an existing session, use --resume with just the new message
@@ -786,6 +814,29 @@ const server = createServer(async (req, res) => {
           }
         }
 
+        // Rate limit or fatal error — try Ollama fallback before giving up
+        if (e.message?.includes("hit your limit") || e.message?.includes("rate limit")) {
+          console.log(`  → Claude rate-limited, falling back to Ollama tool-loop`);
+          try {
+            const loopResult = await runToolLoop({
+              prompt: lastUserMessage,
+              systemPrompt: routeResult?.systemPrompt || (systemPrompt !== FAMILIAR_SYSTEM_PREAMBLE ? systemPrompt : ""),
+              model: routeResult?.model || "familiar-coder:latest",
+              maxIterations: 10,
+              maxToolCalls: 25,
+              timeoutMs: 120_000,
+            });
+            const fallbackText = loopResult.response || "(no response)";
+            res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-coder", choices: [{ index: 0, delta: { role: "assistant", content: fallbackText }, finish_reason: null }] })}\n\n`);
+            res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: "familiar-coder", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          } catch (fallbackErr) {
+            console.error(`  → Ollama fallback also failed: ${fallbackErr.message}`);
+          }
+        }
+
         const sseErr = {
           id, object: "chat.completion.chunk", created,
           model: "claude-subscription",
@@ -850,6 +901,31 @@ const server = createServer(async (req, res) => {
         sessionStore.delete(sessionKey);
         // Retry handled in next request naturally
       }
+
+      // Rate limit — try Ollama fallback
+      if (e.message?.includes("hit your limit") || e.message?.includes("rate limit")) {
+        console.log(`  → Claude rate-limited, falling back to Ollama tool-loop`);
+        try {
+          const loopResult = await runToolLoop({
+            prompt: lastUserMessage,
+            systemPrompt: routeResult?.systemPrompt || (systemPrompt !== FAMILIAR_SYSTEM_PREAMBLE ? systemPrompt : ""),
+            model: routeResult?.model || "familiar-coder:latest",
+            maxIterations: 10,
+            maxToolCalls: 25,
+            timeoutMs: 120_000,
+          });
+          const fallbackText = loopResult.response || "(no response)";
+          return jsonResponse(res, 200, {
+            id, object: "chat.completion", created, model: "familiar-coder",
+            choices: [{ index: 0, message: { role: "assistant", content: fallbackText }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            _meta: { fallback: true, reason: "rate-limited", iterations: loopResult.iterations, toolCalls: loopResult.toolCalls.length },
+          });
+        } catch (fallbackErr) {
+          console.error(`  → Ollama fallback also failed: ${fallbackErr.message}`);
+        }
+      }
+
       return jsonResponse(res, 500, { error: { message: e.message, type: "server_error" } });
     }
   }

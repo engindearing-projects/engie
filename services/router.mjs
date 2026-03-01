@@ -229,12 +229,16 @@ export class Router {
   /**
    * Decide which backend to use.
    *
+   * Claude is the primary driver — it produces the best results and every
+   * response feeds the Forge training pipeline, improving the local model.
+   * Ollama is the fallback for when Claude is offline or subscription is
+   * inactive. Complexity scoring is still computed for Forge collection.
+   *
    * @param {object} opts
    * @param {string} opts.prompt
    * @param {string} [opts.hint] - "heavy" | "light" | "auto"
    * @param {boolean} [opts.hasCode]
    * @param {number} [opts.tokenEstimate]
-   * @param {number} [opts.threshold] - complexity score above this → Claude Code (default 0.6)
    *
    * @returns {Promise<{backend: "claude"|"ollama", reason: string, score: number, claudeAvailable: boolean, ollamaAvailable: boolean}>}
    */
@@ -244,35 +248,48 @@ export class Router {
     // Classify the role — determines model, system prompt, and temperature
     const roleInfo = this.classifyRole(prompt);
 
-    // Resolve to the actual available model (familiar-* or stock fallback)
+    // Resolve to the actual available Ollama model (for fallback or role info)
     const resolvedModel = await this.resolveModel(roleInfo.role);
     roleInfo.model = resolvedModel;
 
-    // Score complexity for training data collection (still useful for Forge)
+    // Score complexity for Forge training data collection
     const score = this.scoreComplexity(opts);
 
-    // Check Ollama availability — fall back to Claude if Ollama is down (e.g. during training)
-    const ollamaAvailable = await this.isOllamaAvailable();
+    // Claude is the primary backend — check availability first
+    const claudeAvailable = await this.isClaudeAvailable();
 
-    if (!ollamaAvailable) {
-      const claudeAvailable = await this.isClaudeAvailable();
-      if (claudeAvailable) {
-        return {
-          backend: "claude",
-          reason: `Ollama unavailable (training?), falling back to Claude`,
-          score,
-          ollamaAvailable: false,
-          claudeAvailable: true,
-          ...roleInfo,
-        };
-      }
+    if (claudeAvailable) {
+      return {
+        backend: "claude",
+        reason: `Claude primary (${roleInfo.role}, score=${score.toFixed(2)})`,
+        score,
+        claudeAvailable: true,
+        ollamaAvailable: true, // don't bother checking if Claude is up
+        ...roleInfo,
+      };
     }
 
+    // Claude unavailable — fall back to local Ollama model
+    const ollamaAvailable = await this.isOllamaAvailable();
+
+    if (ollamaAvailable) {
+      return {
+        backend: "ollama",
+        reason: `Claude offline, falling back to ${resolvedModel}`,
+        score,
+        claudeAvailable: false,
+        ollamaAvailable: true,
+        ...roleInfo,
+      };
+    }
+
+    // Both down — return ollama anyway, caller will handle the error
     return {
       backend: "ollama",
-      reason: `${roleInfo.role} → ${resolvedModel}`,
+      reason: `Both backends unavailable, attempting ${resolvedModel}`,
       score,
-      ollamaAvailable,
+      claudeAvailable: false,
+      ollamaAvailable: false,
       ...roleInfo,
     };
   }

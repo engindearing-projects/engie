@@ -473,12 +473,7 @@ async function handleChatSend(ws, reqId, params) {
     const { role } = routeResult;
     const roleHint = ROLE_HINTS[role] || "";
 
-    console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} route=claude${isExplicitClaude ? " (explicit)" : ""} score=${routeResult.score?.toFixed(2)}`);
-
-    // Check Claude availability
-    if (!claudeBin()) throw new Error("claude CLI not found");
-    const online = await checkOnline();
-    if (!online) throw new Error("Anthropic API unreachable — cannot process request.");
+    console.log(`[chat] session=${sessionKey.slice(0, 30)} role=${role} route=${routeResult.backend}${isExplicitClaude ? " (explicit)" : ""} score=${routeResult.score?.toFixed(2)}`);
 
     // Build system prompt with SOUL.md + role hint + memory context
     const soulContent = getSoulContent();
@@ -496,48 +491,85 @@ async function handleChatSend(ws, reqId, params) {
       broadcast("chat", { runId, sessionKey, state: "progress", message: { role: "assistant", content: msg } });
     };
 
-    // ── Run task with automatic continuation ──
-    const taskResult = await runLongTask({
-      prompt: effectivePrompt,
-      systemPrompt: fullSystemPrompt,
-      claudeOpts: {
-        outputFormat: "json",
-        permissionMode: "bypassPermissions",
-        disallowedTools: ENGIE_DISALLOWED_TOOLS,
-        maxTurns: FAMILIAR_MAX_TURNS,
-        addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
-        timeoutMs: FAMILIAR_TIMEOUT_MS,
-        mcpConfig: FAMILIAR_MCP_CONFIG,
-      },
-      session,
-      limiter: claudeLimiter,
-      sessionKey,
-      onProgress,
-      resumeTaskId,
-    });
+    // Check Claude availability — fall back to local Ollama if offline
+    let claudeReady = claudeBin() && await checkOnline();
 
-    responseText = taskResult.text;
-    const responseDurationMs = Date.now() - responseStart;
+    let usedFallback = false;
 
-    if (taskResult.continuations > 0) {
-      console.log(`[chat] long task done: ${taskResult.continuations} continuations, ${taskResult.totalTurns} turns, $${(taskResult.totalCost || 0).toFixed(4)}`);
-    } else {
-      console.log(`[chat] claude done: role=${role} duration=${responseDurationMs}ms`);
+    if (claudeReady) {
+      // ── Primary: Claude Code ──
+      try {
+        const taskResult = await runLongTask({
+          prompt: effectivePrompt,
+          systemPrompt: fullSystemPrompt,
+          claudeOpts: {
+            outputFormat: "json",
+            permissionMode: "bypassPermissions",
+            disallowedTools: ENGIE_DISALLOWED_TOOLS,
+            maxTurns: FAMILIAR_MAX_TURNS,
+            addDirs: [resolve(PROJECT_DIR, "memory"), resolve(PROJECT_DIR, "workspace")],
+            timeoutMs: FAMILIAR_TIMEOUT_MS,
+            mcpConfig: FAMILIAR_MCP_CONFIG,
+          },
+          session,
+          limiter: claudeLimiter,
+          sessionKey,
+          onProgress,
+          resumeTaskId,
+        });
+
+        responseText = taskResult.text;
+        const responseDurationMs = Date.now() - responseStart;
+
+        if (taskResult.continuations > 0) {
+          console.log(`[chat] long task done: ${taskResult.continuations} continuations, ${taskResult.totalTurns} turns, $${(taskResult.totalCost || 0).toFixed(4)}`);
+        } else {
+          console.log(`[chat] claude done: role=${role} duration=${responseDurationMs}ms`);
+        }
+
+        // Log session quality
+        logSessionQuality({ role, confidence: 1.0, flags: [], toolCalls: null, iterations: 0 });
+
+        // Fire Forge collector — every Claude response is training data
+        getCollector().then((c) => {
+          if (c) c.collectPair({
+            prompt: message,
+            routedTo: "claude",
+            complexityScore: routeResult.score,
+            primaryResponse: responseText,
+            primaryDurationMs: responseDurationMs,
+          });
+        }).catch(() => {});
+      } catch (claudeErr) {
+        // Claude failed (rate limit, crash, etc.) — fall back to Ollama
+        const reason = claudeErr.message?.includes("hit your limit") ? "rate-limited" : "errored";
+        console.log(`[chat] Claude ${reason}, falling back to Ollama tool-loop: ${claudeErr.message}`);
+        claudeReady = false;
+        usedFallback = true;
+      }
     }
 
-    // Log session quality
-    logSessionQuality({ role, confidence: 1.0, flags: [], toolCalls: null, iterations: 0 });
+    if (!claudeReady) {
+      // ── Fallback: Local Ollama model ──
+      const reason = usedFallback ? "Claude failed, using local model" : "Claude is offline";
+      console.log(`[chat] ${reason}, falling back to Ollama tool-loop`);
+      broadcast("chat", { runId, sessionKey, state: "progress", message: { role: "assistant", content: `(Running on local model — ${reason})` } });
 
-    // Fire Forge collector — every Claude response is training data
-    getCollector().then((c) => {
-      if (c) c.collectPair({
-        prompt: message,
-        routedTo: "claude",
-        complexityScore: routeResult.score,
-        primaryResponse: responseText,
-        primaryDurationMs: responseDurationMs,
+      const loopResult = await runToolLoop({
+        prompt: effectivePrompt,
+        systemPrompt: fullSystemPrompt,
+        model: routeResult.model || "familiar-coder:latest",
+        maxIterations: 10,
+        maxToolCalls: 25,
+        timeoutMs: 120_000,
       });
-    }).catch(() => {});
+
+      responseText = loopResult.response || "(no response)";
+      const responseDurationMs = Date.now() - responseStart;
+      console.log(`[chat] ollama fallback done: ${loopResult.iterations} iters, ${loopResult.toolCalls.length} tools, duration=${responseDurationMs}ms`);
+
+      logSessionQuality({ role, confidence: 0.5, flags: [usedFallback ? "claude-fallback" : "offline-fallback"], toolCalls: loopResult.toolCalls.length, iterations: loopResult.iterations });
+    }
 
     broadcast("agent", { runId, sessionKey, stream: "assistant", data: { delta: responseText } });
 
